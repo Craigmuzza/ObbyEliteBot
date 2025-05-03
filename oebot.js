@@ -264,7 +264,6 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
         inline: true
       })
       .setColor(isClan ? 0x00CC88 : 0xFF0000)
-	  .setThumbnail(EMBED_ICON)   // ← NEW
       .setTimestamp();
 
         // Send the main loot-detected embed
@@ -301,7 +300,6 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
           `Total bounty paid out: **${bounty.total.toLocaleString()} coins (${abbreviateGP(bounty.total)})**`
         )
         .setColor(0xFFAA00)
-		.setThumbnail(EMBED_ICON)   // ← NEW
         .setTimestamp();
 
       await ch.send({ content: mentions, embeds: [claimEmbed] });
