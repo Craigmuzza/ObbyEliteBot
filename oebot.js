@@ -496,52 +496,50 @@ function toCSV(rows, headers) {
 }
 
 // ── Discord commands ─────────────────────────────────────────
-client.on(Events.MessageCreate, async msg => {
-  if (msg.author.bot) return;
-  const text = msg.content.trim();
-  if (!text.startsWith("!")) return;
-  if (!checkCooldown(msg.author.id)) {
-    return sendEmbed(msg.channel, "⏳ On Cooldown", "Please wait a few seconds between commands.");
-  }
-
-  const lc   = text.toLowerCase();
-  const args = text.split(/\s+/);
-  const cmd  = args.shift();
-
-  // helper for lootboard
-  const makeLootBoard = arr => {
-    const sums = {};
-    arr.forEach(({ killer, gp }) => {
-      const k = killer.toLowerCase();
-      sums[k] = (sums[k]||0) + gp;
-    });
-    return Object.entries(sums)
-      .sort((a,b) => b[1] - a[1])
-      .slice(0,10)
-      .map(([n,v],i) => ({ rank:i+1, name:n, gp:v }));
-  };
-
+client.on(Events.MessageCreate, async (msg) => {
   try {
+    // ignore bots & non-commands
+    if (msg.author.bot) return;
+    const text = msg.content.trim();
+    if (!text.startsWith("!")) return;
+    if (!checkCooldown(msg.author.id)) {
+      return sendEmbed(msg.channel, "⏳ On Cooldown", "Please wait a few seconds between commands.");
+    }
+
+    // parse out command + args
+    const lc   = text.toLowerCase();
+    const args = text.split(/\s+/);
+    const cmd  = args.shift();
+
+    // ── helper for lootboard ─────────────────────────────────────
+    const makeLootBoard = (arr) => {
+      const sums = {};
+      arr.forEach(({ killer, gp }) => {
+        const k = killer.toLowerCase();
+        sums[k] = (sums[k]||0) + gp;
+      });
+      return Object.entries(sums)
+        .sort((a,b) => b[1] - a[1])
+        .slice(0,10)
+        .map(([n,v],i) => ({ rank: i+1, name: n, gp: v }));
+    };
+
+    // ── !hiscores ────────────────────────────────────────────────
     if (cmd === "!hiscores") {
       let period = "all";
-      if (args[0] && ["daily","weekly","monthly","all"].includes(args[0].toLowerCase())) {
-        period = args.shift().toLowerCase();
+      if (args[0] && ["daily","weekly","monthly","all"].includes(args[0])) {
+        period = args.shift();
       }
       const nameFilter = args.join(" ").toLowerCase() || null;
 
-	  const all = filterByPeriod(
-		killLog.filter(e => currentEvent === "default" ? true : e.event === currentEvent),
-		period
-	);
+      const all = filterByPeriod(
+        killLog.filter(e => currentEvent === "default" ? true : e.event === currentEvent),
+        period
+      );
+      const normal = all;
+      const clan   = []; // stubbed out
 
-    const normal = all;               // everything is “normal” now
-    const clan   = [];                // ← stub out so it never crashes
-
-    const normalBoard = makeBoard(normal);
-    const clanBoard   = makeBoard(clan);
-
-      // build boards
-      const makeBoard = arr => {
+      const makeBoard = (arr) => {
         const counts = {};
         arr.forEach(({ killer }) => {
           const k = killer.toLowerCase();
@@ -551,39 +549,37 @@ client.on(Events.MessageCreate, async msg => {
         return Object.entries(counts)
           .sort((a,b) => b[1] - a[1])
           .slice(0,10)
-          .map(([n,v],i) => ({ rank:i+1, name:n, kills:v }));
+          .map(([n,v],i) => ({ rank: i+1, name: n, kills: v }));
       };
 
+      const normalBoard = makeBoard(normal);
+      const clanBoard   = makeBoard(clan);
 
-      // send normal hiscores
       const e1 = new EmbedBuilder()
         .setTitle(`🏆 Hiscores (${period})`)
         .setColor(0x004200)
-		.setThumbnail(EMBED_ICON)   // ← NEW
+        .setThumbnail(EMBED_ICON)
         .setTimestamp();
       if (!normalBoard.length) {
         e1.setDescription("No kills in that period.");
       } else {
         normalBoard.forEach(r =>
-          e1.addFields({ name:`${r.rank}. ${r.name}`, value:`Kills: ${r.kills}`, inline:false })
+          e1.addFields({ name: `${r.rank}. ${r.name}`, value: `Kills: ${r.kills}`, inline: false })
         );
       }
 
-      // collect embeds to send
       const embeds = [e1];
-
-    // (clanBoard is always empty, so this become a no-op, but you could remove it entirely)
-    if (currentEvent !== "default" && clanBoard.length) {
-      const e2 = new EmbedBuilder()
-        .setTitle(`✨ Clan Hiscores (${period}) — Event: ${currentEvent}`)
-        .setColor(0x004200)
-        .setThumbnail(EMBED_ICON)
-        .setTimestamp();
-      clanBoard.forEach(r =>
-        e2.addFields({ name:`${r.rank}. ${r.name}`, value:`Kills: ${r.kills}`, inline:false })
-      );
-      embeds.push(e2);
-    }
+      if (currentEvent !== "default" && clanBoard.length) {
+        const e2 = new EmbedBuilder()
+          .setTitle(`✨ Clan Hiscores (${period}) — Event: ${currentEvent}`)
+          .setColor(0x004200)
+          .setThumbnail(EMBED_ICON)
+          .setTimestamp();
+        clanBoard.forEach(r =>
+          e2.addFields({ name: `${r.rank}. ${r.name}`, value: `Kills: ${r.kills}`, inline: false })
+        );
+        embeds.push(e2);
+      }
 
       return msg.channel.send({ embeds });
     }
@@ -602,41 +598,25 @@ client.on(Events.MessageCreate, async msg => {
     // ── !lootboard ────────────────────────────────────────────────
     if (cmd === "!lootboard") {
       let period = "all";
-      if (args[0] && ["daily","weekly","monthly","all"].includes(args[0].toLowerCase())) {
-        period = args.shift().toLowerCase();
+      if (args[0] && ["daily","weekly","monthly","all"].includes(args[0])) {
+        period = args.shift();
       }
       const nameFilter = args.join(" ").toLowerCase() || null;
 
-	const all    = filterByPeriod(
-	  lootLog.filter(e => currentEvent === "default" ? true : e.event === currentEvent),
-	  period
-	);
-	  
+      const all    = filterByPeriod(
+        lootLog.filter(e => currentEvent === "default" ? true : e.event === currentEvent),
+        period
+      );
       const normal = all.filter(e => !e.isClan);
       const clan   = all.filter(e => e.isClan);
-
-      // build top-10
-      const makeLootBoard = arr => {
-        const sums = {};
-        arr.forEach(({ killer, gp }) => {
-          const k = killer.toLowerCase();
-          if (nameFilter && k !== nameFilter) return;
-          sums[k] = (sums[k]||0) + gp;
-        });
-        return Object.entries(sums)
-          .sort((a,b) => b[1] - a[1])
-          .slice(0,10)
-          .map(([n,v],i) => ({ rank:i+1, name:n, gp:v }));
-      };
 
       const normalBoard = makeLootBoard(normal);
       const clanBoard   = makeLootBoard(clan);
 
-      // normal lootboard embed
       const e1 = new EmbedBuilder()
         .setTitle(`💰 Lootboard (${period})`)
         .setColor(0x004200)
-		.setThumbnail(EMBED_ICON)   // ← NEW
+        .setThumbnail(EMBED_ICON)
         .setTimestamp();
       if (!normalBoard.length) {
         e1.setDescription("No loot in that period.");
@@ -651,13 +631,11 @@ client.on(Events.MessageCreate, async msg => {
       }
 
       const embeds = [e1];
-
-      // only show clan lootboard when in an event
       if (currentEvent !== "default") {
-		const embed = new EmbedBuilder()
-		  .setTitle("💀 Kill Logged")
-          .setColor(0x004200)
-		  .setThumbnail(EMBED_ICON)   // ← NEW
+        const e2 = new EmbedBuilder()
+          .setTitle(`💎 Clan Lootboard (${period}) — Event: ${currentEvent}`)
+          .setColor(0x00CC88)
+          .setThumbnail(EMBED_ICON)
           .setTimestamp();
         if (!clanBoard.length) {
           e2.setDescription("No clan-vs-clan loot in that period.");
@@ -676,7 +654,7 @@ client.on(Events.MessageCreate, async msg => {
       return msg.channel.send({ embeds });
     }
 
-    // ── Events ──────────────────────────────────────────────────
+    // ── !listevents, !createevent, !finishevent, !resetall, !help ─
     if (lc === "!listevents") {
       return sendEmbed(
         msg.channel,
@@ -703,50 +681,35 @@ client.on(Events.MessageCreate, async msg => {
       saveData();
       return sendEmbed(msg.channel, "✅ Event Finished", `Saved to \`${file}\`, back to **default**.`);
     }
+    if (cmd === "!resetall") {
+      killLog.length = 0;
+      lootLog.length = 0;
+      for (const ev in events) delete events[ev];
+      events.default = { deathCounts:{}, lootTotals:{}, gpTotal:{}, kills:{} };
+      currentEvent   = "default";
+      saveData();
+      return sendEmbed(msg.channel, "🔄 Reset Complete", "All hiscores and lootboard data have been wiped and reset to default.");
+    }
+    if (lc === "!help") {
+      const help = new EmbedBuilder()
+        .setTitle("🛠 OE Loot Bot Help")
+        .setColor(0x004200)
+        .setThumbnail(EMBED_ICON)
+        .setTimestamp()
+        .addFields([
+          { name: "Stats", value: "`!hiscores [period]`\n`!lootboard [period]`\n`!totalgp`", inline:false },
+          { name: "Events", value:"`!createevent <name>`\n`!finishevent`\n`!listevents`\n`!resetall`", inline:false },
+          { name: "Misc",  value:"`!help`", inline:false }
+        ]);
+      return msg.channel.send({ embeds: [help] });
+    }
 
-	if (cmd === "!resetall") {
-	  // (Optionally) only let certain users run this:
-	  // if (msg.author.id !== YOUR_DISCORD_ID) return sendEmbed(msg.channel, "⛔️ Permission denied");
+  } catch (err) {
+    console.error("[command] Error handling command:", err);
+    return sendEmbed(msg.channel, "⚠️ Error", "An error occurred while processing your command.");
+  }
+});  // ← end of your MessageCreate listener
 
-	  // clear the raw logs
-	  killLog.length = 0;
-	  lootLog.length = 0;
-
-	  // reset events object back to a single default “bucket”
-	  for (const ev in events) {
-		delete events[ev];
-	  }
-	  events.default = { deathCounts: {}, lootTotals: {}, gpTotal: {}, kills: {} };
-	  currentEvent   = "default";
-
-	  // persist the change
-	  saveData();
-
-	  return sendEmbed(
-		msg.channel,
-		"🔄 Reset Complete",
-		"All hiscores and lootboard data have been wiped and reset to default."
-	  );
-	}
-
-	   // ── !help ───────────────────────────────────────────────────
-	if (lc === "!help") {
-	  const help = new EmbedBuilder()
-		.setTitle("🛠 OE Loot Bot Help")
-		.setColor(0x004200)
-		.setThumbnail(EMBED_ICON)   // ← NEW
-		.setTimestamp()
-		.addFields([
-		  { name: "Stats", value: "`!hiscores [daily|weekly|monthly|all] [name]`\n`!lootboard [period] [name]`\n`!totalgp`", inline:false },
-		  { name: "Misc", value:"`!help`", inline:false }
-		]);
-	  return msg.channel.send({ embeds: [help] });
-	}
-} catch (err) {
-  console.error("[command] Error handling command:", err);
-  return sendEmbed(msg.channel, "⚠️ Error", "An error occurred while processing your command.");
-}
-});
 
 client.once("ready", () => console.log(`[discord] ready: ${client.user.tag}`));
 client.on("error", err => console.error("[discord] Client error:", err));
