@@ -83,7 +83,12 @@ const client = new Client({
 let currentEvent = "default";
 const registered = new Set();
 const seen       = new Map();
-const events     = {
+
+/* put these two lines back ↓↓↓ */
+const raglist  = new Set();
+const bounties = Object.create(null);
+
+const events   = {
   default: { deathCounts: {}, lootTotals: {}, gpTotal: {}, kills: {} }
 };
 
