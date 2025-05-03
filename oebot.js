@@ -74,7 +74,7 @@ const CLAN_FILTERS = new Set([
 const DEDUP_MS         = 10_000;
 const COMMAND_COOLDOWN = 3_000;
 const BACKUP_INTERVAL  = 5 * 60 * 1000;
-const LOOT_RE = /^(.+?)\s+has\s+defeated\s+(.+?)\s+and\s+received\s+\( *([\d,]+) *coins\).*$/i;
+const LOOT_RE = /^(.+?)\s+has\s+defeated\s+(.+?)\s+and\s+received\s+\(\s*([\d,]+)\s*coins\s*\).*$/i;
 
 // ── Express + Multer setup ────────────────────────────────────
 const app    = express();
@@ -338,21 +338,27 @@ app.post("/logKill", async (req, res) => {
 /* ───────────────────────────  RuneLite “dink” webhook  ────────────────────────── */
 app.post(
   "/dink",
-  upload.fields([
-    { name: "payload_json", maxCount: 1 },
-    { name: "file",         maxCount: 1 }
+  upload.fields([           // keep this for RuneLite «file» uploads
+    { name: "file", maxCount: 1 }
   ]),
   async (req, res) => {
-    let raw = req.body.payload_json;
-    if (Array.isArray(raw)) raw = raw[0];
+    // 1) multipart → "payload_json" field
+    // 2) plain application/json → body *is* the payload
+    let raw =
+      typeof req.body?.payload_json === "string"
+        ? req.body.payload_json
+        : Object.keys(req.body || {}).length
+          ? JSON.stringify(req.body)
+          : null;
+
     if (!raw) return res.status(400).send("no payload_json");
 
     let data;
     try { data = JSON.parse(raw); }
     catch { return res.status(400).send("bad JSON"); }
 
-    const rsn = data.playerName,
-          msg = data.extra?.message;
+	const rsn = data.playerName || "unknown";   // <-- add “|| unknown”
+	const msg = data.extra?.message;
     if (typeof msg === "string")
       console.log(`[dink] seen by=${rsn}|msg=${msg}`);
 
