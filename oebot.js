@@ -595,7 +595,6 @@ client.on(Events.MessageCreate, async (msg) => {
       );
     }
 
-    // ── !lootboard ────────────────────────────────────────────────
 // ── !lootboard ────────────────────────────────────────────────
 if (cmd === "!lootboard") {
   // period argument
