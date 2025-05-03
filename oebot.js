@@ -596,62 +596,58 @@ client.on(Events.MessageCreate, async (msg) => {
     }
 
     // ── !lootboard ────────────────────────────────────────────────
-    if (cmd === "!lootboard") {
-      let period = "all";
-      if (args[0] && ["daily","weekly","monthly","all"].includes(args[0])) {
-        period = args.shift();
-      }
-      const nameFilter = args.join(" ").toLowerCase() || null;
+// ── !lootboard ────────────────────────────────────────────────
+if (cmd === "!lootboard") {
+  // period argument
+  let period = "all";
+  if (args[0] && ["daily","weekly","monthly","all"].includes(args[0])) {
+    period = args.shift();
+  }
+  const nameFilter = args.join(" ").toLowerCase() || null;
 
-      const all    = filterByPeriod(
-        lootLog.filter(e => currentEvent === "default" ? true : e.event === currentEvent),
-        period
-      );
-      const normal = all.filter(e => !e.isClan);
-      const clan   = all.filter(e => e.isClan);
+  // filter by time and drop any clan entries
+  const all = filterByPeriod(
+    lootLog.filter(e => currentEvent === "default" ? true : e.event === currentEvent),
+    period
+  );
+  const normal = all.filter(e => !e.isClan);
 
-      const normalBoard = makeLootBoard(normal);
-      const clanBoard   = makeLootBoard(clan);
+  // build top-10
+  const makeLootBoard = arr => {
+    const sums = {};
+    arr.forEach(({ killer, gp }) => {
+      const k = killer.toLowerCase();
+      if (nameFilter && k !== nameFilter) return;
+      sums[k] = (sums[k]||0) + gp;
+    });
+    return Object.entries(sums)
+      .sort((a,b) => b[1] - a[1])
+      .slice(0,10)
+      .map(([n,v],i) => ({ rank:i+1, name:n, gp:v }));
+  };
+  const normalBoard = makeLootBoard(normal);
 
-      const e1 = new EmbedBuilder()
-        .setTitle(`💰 Lootboard (${period})`)
-        .setColor(0x004200)
-        .setThumbnail(EMBED_ICON)
-        .setTimestamp();
-      if (!normalBoard.length) {
-        e1.setDescription("No loot in that period.");
-      } else {
-        normalBoard.forEach(r =>
-          e1.addFields({
-            name:  `${r.rank}. ${r.name}`,
-            value: `${r.gp.toLocaleString()} coins (${abbreviateGP(r.gp)})`,
-            inline: false
-          })
-        );
-      }
+  // build embed
+  const e1 = new EmbedBuilder()
+    .setTitle(`💰 Lootboard (${period})`)
+    .setColor(0x004200)
+    .setThumbnail(EMBED_ICON)
+    .setTimestamp();
 
-      const embeds = [e1];
-      if (currentEvent !== "default") {
-        const e2 = new EmbedBuilder()
-          .setTitle(`💎 Clan Lootboard (${period}) — Event: ${currentEvent}`)
-          .setColor(0x00CC88)
-          .setThumbnail(EMBED_ICON)
-          .setTimestamp();
-        if (!clanBoard.length) {
-          e2.setDescription("No clan-vs-clan loot in that period.");
-        } else {
-          clanBoard.forEach(r =>
-            e2.addFields({
-              name:  `${r.rank}. ${r.name}`,
-              value: `${r.gp.toLocaleString()} coins (${abbreviateGP(r.gp)})`,
-              inline: false
-            })
-          );
-        }
-        embeds.push(e2);
-      }
+  if (!normalBoard.length) {
+    e1.setDescription("No loot in that period.");
+  } else {
+    normalBoard.forEach(r =>
+      e1.addFields({
+        name:  `${r.rank}. ${r.name}`,
+        value: `${r.gp.toLocaleString()} coins (${abbreviateGP(r.gp)})`,
+        inline: false
+      })
+    );
+  }
 
-      return msg.channel.send({ embeds });
+  // send only the one embed
+  return msg.channel.send({ embeds: [e1] });
     }
 
     // ── !listevents, !createevent, !finishevent, !resetall, !help ─
