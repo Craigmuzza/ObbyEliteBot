@@ -263,7 +263,7 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
         value: `${totalForDisplay.toLocaleString()} coins (${abbreviateGP(totalForDisplay)} GP)`,
         inline: true
       })
-      .setColor(isClan ? 0x00CC88 : 0xFF0000)
+      .setColor(isClan ? 0x820000 : 0x820000)
       .setTimestamp();
 
         // Send the main loot-detected embed
@@ -299,7 +299,7 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
           `**${victim}** was killed by **${killer}**.\n` +
           `Total bounty paid out: **${bounty.total.toLocaleString()} coins (${abbreviateGP(bounty.total)})**`
         )
-        .setColor(0xFFAA00)
+        .setColor(0x820000)
         .setTimestamp();
 
       await ch.send({ content: mentions, embeds: [claimEmbed] });
@@ -558,7 +558,7 @@ client.on(Events.MessageCreate, async msg => {
       // send normal hiscores
       const e1 = new EmbedBuilder()
         .setTitle(`🏆 Hiscores (${period})`)
-        .setColor(0xFF0000)
+        .setColor(0x004200)
 		.setThumbnail(EMBED_ICON)   // ← NEW
         .setTimestamp();
       if (!normalBoard.length) {
@@ -576,7 +576,7 @@ client.on(Events.MessageCreate, async msg => {
     if (currentEvent !== "default" && clanBoard.length) {
       const e2 = new EmbedBuilder()
         .setTitle(`✨ Clan Hiscores (${period}) — Event: ${currentEvent}`)
-        .setColor(0x00CC88)
+        .setColor(0x004200)
         .setThumbnail(EMBED_ICON)
         .setTimestamp();
       clanBoard.forEach(r =>
@@ -635,7 +635,7 @@ client.on(Events.MessageCreate, async msg => {
       // normal lootboard embed
       const e1 = new EmbedBuilder()
         .setTitle(`💰 Lootboard (${period})`)
-        .setColor(0xFF0000)
+        .setColor(0x004200)
 		.setThumbnail(EMBED_ICON)   // ← NEW
         .setTimestamp();
       if (!normalBoard.length) {
@@ -656,7 +656,7 @@ client.on(Events.MessageCreate, async msg => {
       if (currentEvent !== "default") {
 		const embed = new EmbedBuilder()
 		  .setTitle("💀 Kill Logged")
-          .setColor(0x00CC88)
+          .setColor(0x004200)
 		  .setThumbnail(EMBED_ICON)   // ← NEW
           .setTimestamp();
         if (!clanBoard.length) {
@@ -733,7 +733,7 @@ client.on(Events.MessageCreate, async msg => {
 	if (lc === "!help") {
 	  const help = new EmbedBuilder()
 		.setTitle("🛠 OE Loot Bot Help")
-		.setColor(0xFF0000)
+		.setColor(0x004200)
 		.setThumbnail(EMBED_ICON)   // ← NEW
 		.setTimestamp()
 		.addFields([
