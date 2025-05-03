@@ -536,7 +536,11 @@ client.on(Events.MessageCreate, async msg => {
 		period
 	);
 
-	const normal = all;               // everything is “normal” now
+    const normal = all;               // everything is “normal” now
+    const clan   = [];                // ← stub out so it never crashes
+
+    const normalBoard = makeBoard(normal);
+    const clanBoard   = makeBoard(clan);
 
       // build boards
       const makeBoard = arr => {
@@ -552,8 +556,6 @@ client.on(Events.MessageCreate, async msg => {
           .map(([n,v],i) => ({ rank:i+1, name:n, kills:v }));
       };
 
-      const normalBoard = makeBoard(normal);
-      const clanBoard   = makeBoard(clan);
 
       // send normal hiscores
       const e1 = new EmbedBuilder()
@@ -572,22 +574,18 @@ client.on(Events.MessageCreate, async msg => {
       // collect embeds to send
       const embeds = [e1];
 
-      // only show clan board if we're in an event
-      if (currentEvent !== "default") {
-        const e2 = new EmbedBuilder()
-          .setTitle(`✨ Clan Hiscores (${period}) — Event: ${currentEvent}`)
-          .setColor(0x00CC88)
-		  .setThumbnail(EMBED_ICON)   // ← NEW
-          .setTimestamp();
-        if (!clanBoard.length) {
-          e2.setDescription("No clan-vs-clan kills in that period.");
-        } else {
-          clanBoard.forEach(r =>
-            e2.addFields({ name:`${r.rank}. ${r.name}`, value:`Kills: ${r.kills}`, inline:false })
-          );
-        }
-        embeds.push(e2);
-	  }
+    // (clanBoard is always empty, so this become a no-op, but you could remove it entirely)
+    if (currentEvent !== "default" && clanBoard.length) {
+      const e2 = new EmbedBuilder()
+        .setTitle(`✨ Clan Hiscores (${period}) — Event: ${currentEvent}`)
+        .setColor(0x00CC88)
+        .setThumbnail(EMBED_ICON)
+        .setTimestamp();
+      clanBoard.forEach(r =>
+        e2.addFields({ name:`${r.rank}. ${r.name}`, value:`Kills: ${r.kills}`, inline:false })
+      );
+      embeds.push(e2);
+    }
 
       return msg.channel.send({ embeds });
     }
@@ -708,6 +706,31 @@ client.on(Events.MessageCreate, async msg => {
       return sendEmbed(msg.channel, "✅ Event Finished", `Saved to \`${file}\`, back to **default**.`);
     }
 
+	if (cmd === "!resetall") {
+	  // (Optionally) only let certain users run this:
+	  // if (msg.author.id !== YOUR_DISCORD_ID) return sendEmbed(msg.channel, "⛔️ Permission denied");
+
+	  // clear the raw logs
+	  killLog.length = 0;
+	  lootLog.length = 0;
+
+	  // reset events object back to a single default “bucket”
+	  for (const ev in events) {
+		delete events[ev];
+	  }
+	  events.default = { deathCounts: {}, lootTotals: {}, gpTotal: {}, kills: {} };
+	  currentEvent   = "default";
+
+	  // persist the change
+	  saveData();
+
+	  return sendEmbed(
+		msg.channel,
+		"🔄 Reset Complete",
+		"All hiscores and lootboard data have been wiped and reset to default."
+	  );
+	}
+
 	   // ── !help ───────────────────────────────────────────────────
 	if (lc === "!help") {
 	  const help = new EmbedBuilder()
@@ -717,7 +740,6 @@ client.on(Events.MessageCreate, async msg => {
 		.setTimestamp()
 		.addFields([
 		  { name: "Stats", value: "`!hiscores [daily|weekly|monthly|all] [name]`\n`!lootboard [period] [name]`\n`!totalgp`", inline:false },
-		  { name: "Events", value:"`!createevent <name>`\n`!finishevent`\n`!listevents`", inline:false },
 		  { name: "Misc", value:"`!help`", inline:false }
 		]);
 	  return msg.channel.send({ embeds: [help] });
