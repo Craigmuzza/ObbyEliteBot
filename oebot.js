@@ -28,8 +28,9 @@ const DATA_DIR = "/data";
   try {
     const res = spawnSync("git", [
       "remote", "set-url", "origin",
-      "https://github.com/Craigmuzza/ObbyEliteBot.git";
+      "https://github.com/Craigmuzza/ObbyEliteBot.git"   // ← semicolon removed
     ], { cwd: __dirname, stdio: "inherit" });
+
     console.log(res.status === 0
       ? "[git] origin remote set to correct URL"
       : "[git] failed to set origin remote");
@@ -83,9 +84,7 @@ const client = new Client({
 
 // ── Bot state & storage ───────────────────────────────────────
 let currentEvent = "default";
-let clanOnlyMode = false;
 const registered = new Set();
-const raglist = new Set();
 const seen       = new Map();
 const events     = {
   default: { deathCounts: {}, lootTotals: {}, gpTotal: {}, kills: {} }
@@ -93,16 +92,7 @@ const events     = {
 const commandCooldowns = new Collection();
 const killLog = [];
 const lootLog = [];
-/**
- *  bounties = {
- *    "victim-name": {
- *       total:   25_000_000,           // total GP on that head
- *       posters: { userId: amount }    // per-Discord-user contribution
- *    },
- *    …
- *  }
- */
-const bounties = Object.create(null);
+
 
 // ── Helpers ───────────────────────────────────────────────────
 const ci  = s => (s||"").toLowerCase().trim();
@@ -171,7 +161,7 @@ function saveData() {
     fs.writeFileSync(
       path.join(DATA_DIR, "state.json"),
       JSON.stringify(
-       { currentEvent, clanOnlyMode, events, killLog, lootLog, bounties },
+       { currentEvent, events, killLog, lootLog,},
        null,
        2
 	   )
@@ -189,36 +179,6 @@ function loadData() {
     if (!fs.existsSync(DATA_DIR)) {
       console.log("[init] no data dir yet");
       return;
-    }
-
-    /* ── registered + raglist ──────────────────────────────── */
-    const regPath = path.join(DATA_DIR, "registered.json");
-    if (fs.existsSync(regPath)) {
-      JSON.parse(fs.readFileSync(regPath))
-        .forEach(n => registered.add(ci(n)));
-      console.log(`[init] loaded ${registered.size} registered names`);
-    }
-	
-        /* B. early hybrid ({ once:{…}, persistent:true/false }) */
-        if (typeof v.persistent === "boolean") {
-          bounties[k] = {
-            once:       v.once || { total: 0, posters: {} },
-            persistent: v.persistent ? { total: v.total || 0, posters: v.posters || {} }
-                                     : { total: 0, posters: {} }
-          };
-          return;
-        }
-
-        /* C. numeric‑only legacy */
-        if (typeof v === "number") {
-          bounties[k] = {
-            once:       { total: v, posters: {} },
-            persistent: { total: 0, posters: {} }
-          };
-        }
-      });
-
-      console.log(`[init] loaded & normalised ${Object.keys(bounties).length} bounties`);
     }
 
   } catch (err) {
@@ -300,46 +260,6 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
         // Send the main loot-detected embed
     const ch = await client.channels.fetch(DISCORD_CHANNEL_ID);
     if (ch?.isTextBased()) await ch.send({ embeds: [embed] });
-
-    // ── Raglist alert ─────────────────────────────────────────
-    if (raglist.has(ci(victim))) {
-      const bountyObj   = bounties[ci(victim)];
-      const bountyTotal = bountyObj ? bountyObj.total : 0;
-
-      const bountyLine = bountyTotal
-        ? `\nCurrent bounty: **${bountyTotal.toLocaleString()} coins (${abbreviateGP(bountyTotal)})**`
-        : "";
-
-      await sendEmbed(
-        ch,
-        "⚔️ Raglist Alert!",
-        `@here **${victim}** is on the Raglist! Time to hunt them down!${bountyLine}`
-      );
-    }
-
-    // ── Bounty claimed ────────────────────────────────────────
-    const bounty = bounties[ci(victim)];
-    if (bounty && bounty.total > 0) {
-      const mentions = Object.keys(bounty.posters)
-        .map(id => `<@${id}>`)
-        .join(" ");
-
-      const claimEmbed = new EmbedBuilder()
-        .setTitle("💸 Bounty Claimed!")
-        .setDescription(
-          `**${victim}** was killed by **${killer}**.\n` +
-          `Total bounty paid out: **${bounty.total.toLocaleString()} coins (${abbreviateGP(bounty.total)})**`
-        )
-        .setColor(0xFFAA00)
-        .setTimestamp();
-
-      await ch.send({ content: mentions, embeds: [claimEmbed] });
-
-		if (!bounty.persistent) {
-		delete bounties[ci(victim)]; // one‑shot bounty
-}
-      saveData();
-    }
 
     // persist everything done above
     saveData();
@@ -428,7 +348,7 @@ app.post(
       console.log(`[dink] seen by=${rsn}|msg=${msg}`);
 
 /* -----------------------------------------------------------------
-   Only process clan‑chat that comes from the clan “A Rat Pact”.
+   Only process clan‑chat that comes from the clan “Obby Elite”.
 ------------------------------------------------------------------ */
 if (
   data.type === "CHAT" &&
