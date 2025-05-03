@@ -375,7 +375,7 @@ app.post("/logKill", async (req, res) => {
   );
 });
 
-/* ───────────────────────────  RuneLite “dink” webhook  ────────────────────────── */
+/* ─────────────────────────── RuneLite “dink” webhook ────────────────────────── */
 app.post(
   "/dink",
   upload.fields([
@@ -383,51 +383,74 @@ app.post(
     { name: "file",         maxCount: 1 }
   ]),
   async (req, res) => {
-    let raw = req.body.payload_json;
+    /* --------------------------------------------------
+       1. get the raw JSON string – works for both
+          multipart and plain application/json
+    --------------------------------------------------- */
+    let raw = req.body?.payload_json;
     if (Array.isArray(raw)) raw = raw[0];
-    if (!raw) return res.status(400).send("no payload_json");
+    if (!raw && Object.keys(req.body || {}).length) {
+      raw = JSON.stringify(req.body);          // plain JSON POST
+    }
 
+    /* --------------------------------------------------
+       2. log everything we received
+    --------------------------------------------------- */
+    const util = (await import("node:util")).default;
+    console.log("——— /dink incoming ———");
+    console.log("Headers:", util.inspect(req.headers, { depth: 2, colors: true }));
+    console.log("Body (raw):", raw);
+
+    if (!raw) {
+      console.log("⚠️  no payload_json field");
+      return res.status(400).send("no payload_json");
+    }
+
+    /* --------------------------------------------------
+       3. parse it (with error logging)
+    --------------------------------------------------- */
     let data;
-    try { data = JSON.parse(raw); }
-    catch { return res.status(400).send("bad JSON"); }
+    try {
+      data = JSON.parse(raw);
+    } catch (err) {
+      console.error("⚠️  JSON parse failed:", err);
+      return res.status(400).send("bad JSON");
+    }
 
-    const rsn = data.playerName,
-          msg = data.extra?.message;
-    if (typeof msg === "string")
-      console.log(`[dink] seen by=${rsn}|msg=${msg}`);
+    console.log("Body (parsed):", util.inspect(data, { depth: 5, colors: true }));
 
-/* -----------------------------------------------------------------
-   Only process clan‑chat that comes from the clan “Obby Elite”.
------------------------------------------------------------------- */
-if (
-  data.type === "CHAT" &&
-  ["CLAN_CHAT", "CLAN_MESSAGE"].includes(data.extra?.type) &&
-  typeof msg === "string"
-) {
-  const clanName =
-    (
-      data.extra?.clanName   ||   // RuneLite ≥1.10
-      data.extra?.clan_name  ||   // older forks
-      data.extra?.source     ||   // ← NEW: where yours is found
-      data.extra?.clanTag    ||   // other odd variants
-      data.extra?.clan       ||   // generic fallback
-      ""
-    ).toLowerCase();
+    const rsn = data.playerName;
+    const msg = data.extra?.message;
+    if (typeof msg === "string") {
+      console.log(`[dink] seen by=${rsn} | msg=${msg}`);
+    }
 
-  /* our clan — parse the loot message */
-  const m = msg.match(LOOT_RE);
-  if (m) {
-    return processLoot(
-      m[1],                               // killer
-      m[2],                               // victim
-      Number(m[3].replace(/,/g, "")),     // gp
-      msg.trim(),                         // dedup key
-      res
-    );
-  }
-}
-    /* nothing to do */
-    return res.status(204).end();
+    /* --------------------------------------------------
+       4. if it’s a chat message, try the loot regex
+    --------------------------------------------------- */
+    if (
+      data.type === "CHAT" &&
+      ["CLAN_CHAT", "CLAN_MESSAGE"].includes(data.extra?.type) &&
+      typeof msg === "string"
+    ) {
+      const m = msg.match(LOOT_RE);
+      if (m) {
+        // processLoot returns a promise, so await it
+        await processLoot(
+          m[1],                               // killer
+          m[2],                               // victim
+          Number(m[3].replace(/,/g, "")),     // gp
+          msg.trim(),                         // dedup key
+          res
+        );
+        return;                               // <- we handled the response
+      }
+    }
+
+    /* --------------------------------------------------
+       5. fall‑through: nothing we care about
+    --------------------------------------------------- */
+    res.status(204).end();
   }
 );
 
