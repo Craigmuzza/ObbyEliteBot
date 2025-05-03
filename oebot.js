@@ -59,7 +59,7 @@ const BRANCH             = "main";
 const COMMIT_MSG         = "auto: sync data";
 
 // ── Constants & Regex ─────────────────────────────────────────
-const EMBED_ICON = "https://imgur.com/a/RE1j5t8";
+const EMBED_ICON = "https://i.imgur.com/qhpxVOw.gif";
 const DEDUP_MS         = 10_000;
 const COMMAND_COOLDOWN = 3_000;
 const BACKUP_INTERVAL  = 5 * 60 * 1000;
@@ -659,7 +659,7 @@ client.on(Events.MessageCreate, async msg => {
       // only show clan lootboard when in an event
       if (currentEvent !== "default") {
 		const embed = new EmbedBuilder()
-		  .setTitle("💀 Kill Logged");
+		  .setTitle("💀 Kill Logged")
           .setColor(0x00CC88)
 		  .setThumbnail(EMBED_ICON)   // ← NEW
           .setTimestamp();
