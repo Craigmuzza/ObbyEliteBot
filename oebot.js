@@ -81,12 +81,7 @@ const client = new Client({
 
 // ── Bot state & storage ───────────────────────────────────────
 let currentEvent = "default";
-const registered = new Set();
 const seen       = new Map();
-
-/* put these two lines back ↓↓↓ */
-const raglist  = new Set();
-const bounties = Object.create(null);
 
 const events   = {
   default: { deathCounts: {}, lootTotals: {}, gpTotal: {}, kills: {} }
@@ -229,7 +224,7 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
     }
     seen.set(dedupKey, now());
 
-    const isClan = registered.has(ci(killer)) && registered.has(ci(victim));
+	const isClan = false;   // or simply delete the variable and inline‑remove the checks
     const { lootTotals, gpTotal, kills, deathCounts } = getEventData();
 
     lootTotals[ci(killer)] = (lootTotals[ci(killer)]||0) + gp;
@@ -256,8 +251,8 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
           ? gpTotal[ci(killer)]
           : lootTotals[ci(killer)]);
 
-    const embed = new EmbedBuilder()
-      .setTitle(isClan ? "💎 Clan Loot Detected!" : "💰 Loot Detected")
+	const embed = new EmbedBuilder()
+	  .setTitle("💰 Loot Detected")
       .setDescription(`**${killer}** defeated **${victim}** and received **${gp.toLocaleString()} coins**`)
       .addFields({
         name: isClan
@@ -268,8 +263,6 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
       })
       .setColor(isClan ? 0x00CC88 : 0xFF0000)
       .setTimestamp();
-
-    if (isClan) embed.setFooter({ text: "🔥 Clan-vs-Clan action!" });
 
         // Send the main loot-detected embed
     const ch = await client.channels.fetch(DISCORD_CHANNEL_ID);
@@ -538,8 +531,8 @@ client.on(Events.MessageCreate, async msg => {
 		killLog.filter(e => currentEvent === "default" ? true : e.event === currentEvent),
 		period
 	);
-      const normal = all.filter(e => !e.isClan);
-      const clan   = all.filter(e => e.isClan);
+
+	const normal = all;               // everything is “normal” now
 
       // build boards
       const makeBoard = arr => {
@@ -658,8 +651,8 @@ client.on(Events.MessageCreate, async msg => {
 
       // only show clan lootboard when in an event
       if (currentEvent !== "default") {
-        const e2 = new EmbedBuilder()
-          .setTitle(`💎 Clan Lootboard (${period}) — Event: ${currentEvent}`)
+		const embed = new EmbedBuilder()
+		  .setTitle("💀 Kill Logged");
           .setColor(0x00CC88)
           .setTimestamp();
         if (!clanBoard.length) {
