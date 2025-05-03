@@ -59,7 +59,16 @@ const BRANCH             = "main";
 const COMMIT_MSG         = "auto: sync data";
 
 // ── Keeping it in the clan ────────────────────────────────────
-const CLAN_FILTER = "obby elite";        // lower‑case, for easy compare
+
+// normalise helper: lower‑case & trim whitespace
+const normalize = s => (s ?? "").toLowerCase().trim();
+
+// Any of these strings will be accepted by /dink
+const CLAN_FILTERS = new Set([
+  "obby elite",        // main spelling
+  "obby elite cc",     // some RuneLite builds add “cc”
+  "[obby elite]"       // tag in brackets
+]);
 
 // ── Constants & Regex ─────────────────────────────────────────
 const DEDUP_MS         = 10_000;
@@ -355,18 +364,20 @@ if (
   ["CLAN_CHAT", "CLAN_MESSAGE"].includes(data.extra?.type) &&
   typeof msg === "string"
 ) {
-  const clanName =
-    (
-      data.extra?.clanName   ||   // RuneLite ≥1.10
-      data.extra?.clan_name  ||   // older forks
-      data.extra?.source     ||   // ← NEW: where yours is found
-      data.extra?.clanTag    ||   // other odd variants
-      data.extra?.clan       ||   // generic fallback
-      ""
-    ).toLowerCase();
+  const clanName = normalize(
+    data.extra?.clanName  ||
+    data.extra?.clan_name ||
+    data.extra?.source    ||
+    data.extra?.clanTag   ||
+    data.extra?.clan      ||
+    ""
+  );
 
-  if (clanName !== CLAN_FILTER) {          // not our clan – ignore
-    console.log(`[dink] skipped clan: "${clanName}"`);
+  // Debug – watch the exact string the first time it fires
+  console.log(`[dink] clan="${clanName}" raw="${data.extra?.clanName||data.extra?.source}"`);
+
+  if (!CLAN_FILTERS.has(clanName)) {       // not on our allow‑list
+    console.log("[dink] skipped (wrong clan)");
     return res.status(204).end();
   }
 
@@ -639,7 +650,7 @@ client.on(Events.MessageCreate, async msg => {
 	   // ── !help ───────────────────────────────────────────────────
 	if (lc === "!help") {
 	  const help = new EmbedBuilder()
-		.setTitle("🛠 Robo-Rat Help")
+		.setTitle("🛠 OE Loot Bot Help")
 		.setColor(0xFF0000)  // Set the embed colour to yellow
 		.setTimestamp()
 		.addFields([
