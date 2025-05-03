@@ -59,6 +59,7 @@ const BRANCH             = "main";
 const COMMIT_MSG         = "auto: sync data";
 
 // ── Constants & Regex ─────────────────────────────────────────
+const EMBED_ICON = "https://imgur.com/a/RE1j5t8";
 const DEDUP_MS         = 10_000;
 const COMMAND_COOLDOWN = 3_000;
 const BACKUP_INTERVAL  = 5 * 60 * 1000;
@@ -121,6 +122,7 @@ function sendEmbed(channel, title, desc, color = 0xFF0000) {
     .setTitle(title)
     .setDescription(desc)
     .setColor(color)
+	.setThumbnail(EMBED_ICON)   // ← NEW
     .setTimestamp();
   return channel.send({ embeds: [embed] });
 }
@@ -262,6 +264,7 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
         inline: true
       })
       .setColor(isClan ? 0x00CC88 : 0xFF0000)
+	  .setThumbnail(EMBED_ICON)   // ← NEW
       .setTimestamp();
 
         // Send the main loot-detected embed
@@ -298,6 +301,7 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
           `Total bounty paid out: **${bounty.total.toLocaleString()} coins (${abbreviateGP(bounty.total)})**`
         )
         .setColor(0xFFAA00)
+		.setThumbnail(EMBED_ICON)   // ← NEW
         .setTimestamp();
 
       await ch.send({ content: mentions, embeds: [claimEmbed] });
@@ -555,6 +559,7 @@ client.on(Events.MessageCreate, async msg => {
       const e1 = new EmbedBuilder()
         .setTitle(`🏆 Hiscores (${period})`)
         .setColor(0xFF0000)
+		.setThumbnail(EMBED_ICON)   // ← NEW
         .setTimestamp();
       if (!normalBoard.length) {
         e1.setDescription("No kills in that period.");
@@ -572,6 +577,7 @@ client.on(Events.MessageCreate, async msg => {
         const e2 = new EmbedBuilder()
           .setTitle(`✨ Clan Hiscores (${period}) — Event: ${currentEvent}`)
           .setColor(0x00CC88)
+		  .setThumbnail(EMBED_ICON)   // ← NEW
           .setTimestamp();
         if (!clanBoard.length) {
           e2.setDescription("No clan-vs-clan kills in that period.");
@@ -634,6 +640,7 @@ client.on(Events.MessageCreate, async msg => {
       const e1 = new EmbedBuilder()
         .setTitle(`💰 Lootboard (${period})`)
         .setColor(0xFF0000)
+		.setThumbnail(EMBED_ICON)   // ← NEW
         .setTimestamp();
       if (!normalBoard.length) {
         e1.setDescription("No loot in that period.");
@@ -654,6 +661,7 @@ client.on(Events.MessageCreate, async msg => {
 		const embed = new EmbedBuilder()
 		  .setTitle("💀 Kill Logged");
           .setColor(0x00CC88)
+		  .setThumbnail(EMBED_ICON)   // ← NEW
           .setTimestamp();
         if (!clanBoard.length) {
           e2.setDescription("No clan-vs-clan loot in that period.");
@@ -705,6 +713,7 @@ client.on(Events.MessageCreate, async msg => {
 	  const help = new EmbedBuilder()
 		.setTitle("🛠 OE Loot Bot Help")
 		.setColor(0xFF0000)
+		.setThumbnail(EMBED_ICON)   // ← NEW
 		.setTimestamp()
 		.addFields([
 		  { name: "Stats", value: "`!hiscores [daily|weekly|monthly|all] [name]`\n`!lootboard [period] [name]`\n`!totalgp`", inline:false },
