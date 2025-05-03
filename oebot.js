@@ -58,11 +58,6 @@ const REPO               = "craigmuzza/ObbyEliteBot";
 const BRANCH             = "main";
 const COMMIT_MSG         = "auto: sync data";
 
-// ── Keeping it in the clan ────────────────────────────────────
-
-// normalise helper: lower‑case & trim whitespace
-const CLAN_FILTER = "obby elite";        // lower‑case, for easy compare
-
 // ── Constants & Regex ─────────────────────────────────────────
 const DEDUP_MS         = 10_000;
 const COMMAND_COOLDOWN = 3_000;
@@ -418,11 +413,6 @@ if (
       data.extra?.clan       ||   // generic fallback
       ""
     ).toLowerCase();
-
-  if (clanName !== CLAN_FILTER) {          // not our clan – ignore
-    console.log(`[dink] skipped clan: "${clanName}"`);
-    return res.status(204).end();
-  }
 
   /* our clan — parse the loot message */
   const m = msg.match(LOOT_RE);
