@@ -43,7 +43,7 @@ const DATA_DIR = "/data";
 ;(function setGitIdentity() {
   try {
     spawnSync("git", ["config", "user.email", "bot@localhost"], { cwd: __dirname });
-    spawnSync("git", ["config", "user.name",  "Robo-Rat Bot"],    { cwd: __dirname });
+    spawnSync("git", ["config", "user.name",  "OE Loot Bot"],    { cwd: __dirname });
     console.log("[git] configured local user.name & user.email");
   } catch (err) {
     console.error("[git] error setting git identity:", err);
@@ -61,20 +61,13 @@ const COMMIT_MSG         = "auto: sync data";
 // ── Keeping it in the clan ────────────────────────────────────
 
 // normalise helper: lower‑case & trim whitespace
-const normalize = s => (s ?? "").toLowerCase().trim();
-
-// Any of these strings will be accepted by /dink
-const CLAN_FILTERS = new Set([
-  "obby elite",        // main spelling
-  "obby elite cc",     // some RuneLite builds add “cc”
-  "[obby elite]"       // tag in brackets
-]);
+const CLAN_FILTER = "obby elite";        // lower‑case, for easy compare
 
 // ── Constants & Regex ─────────────────────────────────────────
 const DEDUP_MS         = 10_000;
 const COMMAND_COOLDOWN = 3_000;
 const BACKUP_INTERVAL  = 5 * 60 * 1000;
-const LOOT_RE = /^(.+?)\s+has\s+defeated\s+(.+?)\s+and\s+received\s+\(\s*([\d,]+)\s*coins\s*\).*$/i;
+const LOOT_RE = /^(.+?)\s+has\s+defeated\s+(.+?)\s+and\s+received\s+\( *([\d,]+) *coins\).*$/i;
 
 // ── Express + Multer setup ────────────────────────────────────
 const app    = express();
@@ -98,10 +91,10 @@ const seen       = new Map();
 const events     = {
   default: { deathCounts: {}, lootTotals: {}, gpTotal: {}, kills: {} }
 };
+
 const commandCooldowns = new Collection();
 const killLog = [];
 const lootLog = [];
-
 
 // ── Helpers ───────────────────────────────────────────────────
 const ci  = s => (s||"").toLowerCase().trim();
@@ -190,6 +183,18 @@ function loadData() {
       return;
     }
 
+ /* ── main state (events, logs, etc.) ───────────────────── */
+    const statePath = path.join(DATA_DIR, "state.json");
+    if (fs.existsSync(statePath)) {
+      const st = JSON.parse(fs.readFileSync(statePath));
+      currentEvent = st.currentEvent || "default";
+      Object.assign(events, st.events || {});
+      killLog.push(...(st.killLog || []));
+      lootLog.push(...(st.lootLog || []));
+      if (st.bounties) Object.assign(bounties, st.bounties);
+      console.log("[init] loaded saved state");
+    }
+
   } catch (err) {
     console.error("[init] Failed to load data:", err);
   }
@@ -269,6 +274,46 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
         // Send the main loot-detected embed
     const ch = await client.channels.fetch(DISCORD_CHANNEL_ID);
     if (ch?.isTextBased()) await ch.send({ embeds: [embed] });
+
+    // ── Raglist alert ─────────────────────────────────────────
+    if (raglist.has(ci(victim))) {
+      const bountyObj   = bounties[ci(victim)];
+      const bountyTotal = bountyObj ? bountyObj.total : 0;
+
+      const bountyLine = bountyTotal
+        ? `\nCurrent bounty: **${bountyTotal.toLocaleString()} coins (${abbreviateGP(bountyTotal)})**`
+        : "";
+
+      await sendEmbed(
+        ch,
+        "⚔️ Raglist Alert!",
+        `@here **${victim}** is on the Raglist! Time to hunt them down!${bountyLine}`
+      );
+    }
+
+    // ── Bounty claimed ────────────────────────────────────────
+    const bounty = bounties[ci(victim)];
+    if (bounty && bounty.total > 0) {
+      const mentions = Object.keys(bounty.posters)
+        .map(id => `<@${id}>`)
+        .join(" ");
+
+      const claimEmbed = new EmbedBuilder()
+        .setTitle("💸 Bounty Claimed!")
+        .setDescription(
+          `**${victim}** was killed by **${killer}**.\n` +
+          `Total bounty paid out: **${bounty.total.toLocaleString()} coins (${abbreviateGP(bounty.total)})**`
+        )
+        .setColor(0xFFAA00)
+        .setTimestamp();
+
+      await ch.send({ content: mentions, embeds: [claimEmbed] });
+
+		if (!bounty.persistent) {
+		delete bounties[ci(victim)]; // one‑shot bounty
+}
+      saveData();
+    }
 
     // persist everything done above
     saveData();
@@ -364,20 +409,18 @@ if (
   ["CLAN_CHAT", "CLAN_MESSAGE"].includes(data.extra?.type) &&
   typeof msg === "string"
 ) {
-  const clanName = normalize(
-    data.extra?.clanName  ||
-    data.extra?.clan_name ||
-    data.extra?.source    ||
-    data.extra?.clanTag   ||
-    data.extra?.clan      ||
-    ""
-  );
+  const clanName =
+    (
+      data.extra?.clanName   ||   // RuneLite ≥1.10
+      data.extra?.clan_name  ||   // older forks
+      data.extra?.source     ||   // ← NEW: where yours is found
+      data.extra?.clanTag    ||   // other odd variants
+      data.extra?.clan       ||   // generic fallback
+      ""
+    ).toLowerCase();
 
-  // Debug – watch the exact string the first time it fires
-  console.log(`[dink] clan="${clanName}" raw="${data.extra?.clanName||data.extra?.source}"`);
-
-  if (!CLAN_FILTERS.has(clanName)) {       // not on our allow‑list
-    console.log("[dink] skipped (wrong clan)");
+  if (clanName !== CLAN_FILTER) {          // not our clan – ignore
+    console.log(`[dink] skipped clan: "${clanName}"`);
     return res.status(204).end();
   }
 
@@ -393,7 +436,6 @@ if (
     );
   }
 }
-
     /* nothing to do */
     return res.status(204).end();
   }
@@ -651,7 +693,7 @@ client.on(Events.MessageCreate, async msg => {
 	if (lc === "!help") {
 	  const help = new EmbedBuilder()
 		.setTitle("🛠 OE Loot Bot Help")
-		.setColor(0xFF0000)  // Set the embed colour to yellow
+		.setColor(0xFF0000)
 		.setTimestamp()
 		.addFields([
 		  { name: "Stats", value: "`!hiscores [daily|weekly|monthly|all] [name]`\n`!lootboard [period] [name]`\n`!totalgp`", inline:false },
