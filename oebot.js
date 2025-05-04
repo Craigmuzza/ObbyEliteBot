@@ -218,7 +218,7 @@ function getEventData() {
 // ── Core processors ───────────────────────────────────────────
 async function processLoot(killer, victim, gp, dedupKey, res) {
   try {
-    // Basic validation & dedupe
+    // 1) Validate & de-dupe
     if (!killer || !victim || typeof gp !== "number" || isNaN(gp)) {
       return res.status(400).send("invalid data");
     }
@@ -227,47 +227,42 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
     }
     seen.set(dedupKey, Date.now());
 
-    // Update your event stats
+    // 2) Update stats
     const { lootTotals, gpTotal, kills, deathCounts } = getEventData();
     lootTotals[ci(killer)] = (lootTotals[ci(killer)] || 0) + gp;
     gpTotal[ci(killer)]    = (gpTotal[ci(killer)]    || 0) + gp;
     kills[ci(killer)]      = (kills[ci(killer)]      || 0) + 1;
+    killLog.push({ killer, victim, gp, timestamp: Date.now(), event: currentEvent });
     deathCounts[ci(victim)] = (deathCounts[ci(victim)] || 0) + 1;
 
-    // Log to your arrays for CSV exports, etc.
-    lootLog.push({ killer, gp, timestamp: Date.now(), isClan: false, event: currentEvent });
-    killLog.push({ killer, victim, timestamp: Date.now(), isClan: false, event: currentEvent });
-
-    // Build & send the embed
-    const totalForDisplay = currentEvent === "default"
+    // 3) Build & send embed
+    const total = currentEvent === "default"
       ? gpTotal[ci(killer)]
       : lootTotals[ci(killer)];
-
     const embed = new EmbedBuilder()
       .setTitle("💰 Loot Detected")
       .setDescription(`**${killer}** defeated **${victim}** and received **${gp.toLocaleString()} coins**`)
-      .addFields([{
+      .addFields({
         name: currentEvent === "default" ? "Total GP Earned" : "Event GP Gained",
-        value: `${totalForDisplay.toLocaleString()} coins (${abbreviateGP(totalForDisplay)} GP)`,
+        value: `${total.toLocaleString()} coins (${abbreviateGP(total)} GP)`,
         inline: true
-      }])
-      .setThumbnail(EMBED_ICON)
+      })
       .setColor(0x820000)
+      .setThumbnail(EMBED_ICON)
       .setTimestamp();
-
     const ch = await client.channels.fetch(DISCORD_CHANNEL_ID);
-    if (ch?.isTextBased()) {
-      await ch.send({ embeds: [embed] });
-    }
+    if (ch?.isTextBased()) await ch.send({ embeds: [embed] });
 
-    // Persist & respond
+    // 4) Persist & finish
     saveData();
     return res.status(200).send("ok");
+
   } catch (err) {
     console.error("[processLoot] Error:", err);
     return res.status(500).send("internal error");
   }
 }
+
 
 async function processKill(killer, victim, dedupKey, res) {
   try {
@@ -333,7 +328,7 @@ app.post(
     { name: "file",         maxCount: 1 }
   ]),
   async (req, res) => {
-    // 1. Grab the raw JSON (works with multipart or plain JSON)
+    // 1) Grab raw JSON
     let raw = req.body?.payload_json;
     if (Array.isArray(raw)) raw = raw[0];
     if (!raw && Object.keys(req.body || {}).length) {
@@ -341,7 +336,7 @@ app.post(
     }
     if (!raw) return res.status(400).send("no payload_json");
 
-    // 2. Parse it
+    // 2) Parse
     let data;
     try {
       data = JSON.parse(raw);
@@ -349,7 +344,7 @@ app.post(
       return res.status(400).send("bad JSON");
     }
 
-    // 3. Only care about clan‐chat messages
+    // 3) Only clan‐chat text messages
     if (
       data.type !== "CHAT" ||
       !["CLAN_CHAT", "CLAN_MESSAGE"].includes(data.extra?.type) ||
@@ -358,13 +353,13 @@ app.post(
       return res.status(204).end();
     }
 
-    // 4. Only from our clan ("Obby Elite")
+    // 4) Only our clan ("Obby Elite")
     const clanName = (data.clanName || data.extra.source || "").toLowerCase();
     if (clanName !== "obby elite") {
       return res.status(204).end();
     }
 
-    // 5. Deduplicate on the exact loot message for 10 seconds
+    // 5) Dedupe identical loot lines for 10s
     const msgText  = data.extra.message.trim();
     const dedupKey = msgText;
     const nowMs    = Date.now();
@@ -373,24 +368,24 @@ app.post(
     }
     seen.set(dedupKey, nowMs);
 
-    // 6. Match & process loot
+    // 6) Match & process
     const m = msgText.match(LOOT_RE);
     if (!m) {
       return res.status(204).end();
     }
 
-    // 7. Hand off to processLoot (which will send the embed & persist)
+    // 7) Hand off to processLoot & return
     console.log(`[dink] seen by=${data.playerName} | msg=${msgText}`);
-    // return here so Express exits the handler as soon as processLoot() sends its response
     return processLoot(
-      m[1],                              // killer
-      m[2],                              // victim
-      Number(m[3].replace(/,/g, "")),    // gp
-      dedupKey,                          // dedup key
+      m[1],                               // killer
+      m[2],                               // victim
+      Number(m[3].replace(/,/g, "")),     // gp
+      dedupKey,                           // dedup key
       res
     );
   }
 );
+
 
 
 
