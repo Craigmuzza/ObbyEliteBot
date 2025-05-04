@@ -338,7 +338,6 @@ app.post("/logKill", async (req, res) => {
 });
 
 /* ─────────────────────────── RuneLite “dink” webhook ────────────────────────── */
-/* ─────────────────────────── RuneLite “dink” webhook ────────────────────────── */
 app.post(
   "/dink",
   upload.fields([
@@ -346,78 +345,76 @@ app.post(
     { name: "file",         maxCount: 1 }
   ]),
   async (req, res) => {
-    // 1. grab raw JSON (works for multipart or plain JSON)
+    // 1️⃣ grab raw JSON
     let raw = req.body?.payload_json;
     if (Array.isArray(raw)) raw = raw[0];
     if (!raw && Object.keys(req.body || {}).length) {
       raw = JSON.stringify(req.body);
     }
     if (!raw) {
-      console.log("[dink] no payload_json");
+      console.log("[dink] ❌ no payload_json");
       return res.status(400).send("no payload_json");
     }
 
-    // 2. parse it
+    // 2️⃣ parse
     let data;
     try {
       data = JSON.parse(raw);
-    } catch (err) {
-      console.log("[dink] bad JSON");
+    } catch {
+      console.log("[dink] ❌ bad JSON");
       return res.status(400).send("bad JSON");
     }
 
-    // 3. only care about clan-chat text messages
+    // 3️⃣ only clan-chat text
     if (
       data.type !== "CHAT" ||
       !["CLAN_CHAT", "CLAN_MESSAGE"].includes(data.extra?.type) ||
       typeof data.extra.message !== "string"
     ) {
-      console.log("[dink] not a clan-chat text");
+      console.log("[dink] ⬆️ not a clan-chat text");
       return res.status(204).end();
     }
 
-    // 4. only from our clan
+    // 4️⃣ only our clan
     const clanName = (data.clanName || data.extra.source || "").toLowerCase();
     if (clanName !== "obby elite") {
-      console.log(`[dink] wrong clan: "${clanName}"`);
+      console.log(`[dink] 🚫 wrong clan (“${clanName}”)`);
       return res.status(204).end();
     }
 
-    // 5. de-dupe identical messages for DEDUP_MS
+    // 5️⃣ de-dupe identical lines for 10s
     const msgText  = data.extra.message.trim();
-    const dedupKey = msgText;
     const nowMs    = Date.now();
-    if (seen.has(dedupKey) && nowMs - seen.get(dedupKey) < DEDUP_MS) {
-      console.log("[dink] dedupe skip:", msgText);
+    if (seen.has(msgText) && nowMs - seen.get(msgText) < DEDUP_MS) {
+      console.log("[dink] 🔁 de-dupe skip:", msgText);
       return res.status(204).end();
     }
-    // record the timestamp so we skip repeats for the next DEDUP_MS
-    seen.set(dedupKey, nowMs);
+    seen.set(msgText, nowMs);
 
-    // 6. match against your loot regex
-    console.log("[dink] processing loot message:", msgText);
+    // 6️⃣ match your loot regex
+    console.log("[dink] ⚔️ processing loot message:", msgText);
     const m = msgText.match(LOOT_RE);
     if (!m) {
-      console.log("[dink] loot regex didn’t match");
+      console.log("[dink] ❌ loot regex didn’t match");
       return res.status(204).end();
     }
 
-    // 7. hand off to processLoot (which will push into lootLog, send embed, save, and reply)
+    // 7️⃣ hand off to processLoot
     try {
       await processLoot(
         m[1],                             // killer
         m[2],                             // victim
         Number(m[3].replace(/,/g, "")),   // gp
-        dedupKey,                         // dedup key (your raw message)
-        res                               // so processLoot can reply for us
+        msgText,                          // dedupKey
+        res                               
       );
     } catch (err) {
       console.error("[dink] processLoot threw:", err);
-      // if processLoot didn’t already send a response, we send a 500
       if (!res.headersSent) res.status(500).send("internal error");
     }
   }
 );
+
 
 
 
