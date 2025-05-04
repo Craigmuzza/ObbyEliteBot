@@ -1,4 +1,4 @@
-// bot.js
+// oebot.js
 import express from "express";
 import { spawnSync } from "child_process";
 import multer from "multer";
@@ -218,99 +218,49 @@ function getEventData() {
 // ── Core processors ───────────────────────────────────────────
 async function processLoot(killer, victim, gp, dedupKey, res) {
   try {
+    // Basic validation & dedupe
     if (!killer || !victim || typeof gp !== "number" || isNaN(gp)) {
       return res.status(400).send("invalid data");
     }
-    if (seen.has(dedupKey) && now() - seen.get(dedupKey) < DEDUP_MS) {
+    if (seen.has(dedupKey) && Date.now() - seen.get(dedupKey) < DEDUP_MS) {
       return res.status(200).send("duplicate");
     }
-    seen.set(dedupKey, now());
+    seen.set(dedupKey, Date.now());
 
-	const isClan = false;   // or simply delete the variable and inline‑remove the checks
+    // Update your event stats
     const { lootTotals, gpTotal, kills, deathCounts } = getEventData();
+    lootTotals[ci(killer)] = (lootTotals[ci(killer)] || 0) + gp;
+    gpTotal[ci(killer)]    = (gpTotal[ci(killer)]    || 0) + gp;
+    kills[ci(killer)]      = (kills[ci(killer)]      || 0) + 1;
+    deathCounts[ci(victim)] = (deathCounts[ci(victim)] || 0) + 1;
 
-    lootTotals[ci(killer)] = (lootTotals[ci(killer)]||0) + gp;
-    gpTotal  [ci(killer)]  = (gpTotal  [ci(killer)]||0) + gp;
-    kills     [ci(killer)] = (kills     [ci(killer)]||0) + 1;
-	  lootLog.push({
-		killer, gp,
-		timestamp: now(),
-		isClan,
-		event: currentEvent          // ← NEW
-	  });
+    // Log to your arrays for CSV exports, etc.
+    lootLog.push({ killer, gp, timestamp: Date.now(), isClan: false, event: currentEvent });
+    killLog.push({ killer, victim, timestamp: Date.now(), isClan: false, event: currentEvent });
 
-    deathCounts[ci(victim)] = (deathCounts[ci(victim)]||0) + 1;
-	  killLog.push({
-		killer, victim,
-		timestamp: now(),
-		isClan,
-		event: currentEvent          // ← NEW
-	  });
+    // Build & send the embed
+    const totalForDisplay = currentEvent === "default"
+      ? gpTotal[ci(killer)]
+      : lootTotals[ci(killer)];
 
-    const totalForDisplay = isClan
-      ? lootTotals[ci(killer)]
-      : (currentEvent === "default"
-          ? gpTotal[ci(killer)]
-          : lootTotals[ci(killer)]);
-
-	const embed = new EmbedBuilder()
-	  .setTitle("💰 Loot Detected")
+    const embed = new EmbedBuilder()
+      .setTitle("💰 Loot Detected")
       .setDescription(`**${killer}** defeated **${victim}** and received **${gp.toLocaleString()} coins**`)
-      .addFields({
-        name: isClan
-          ? "Clan GP Earned"
-          : (currentEvent === "default" ? "Total GP Earned" : "Event GP Gained"),
+      .addFields([{
+        name: currentEvent === "default" ? "Total GP Earned" : "Event GP Gained",
         value: `${totalForDisplay.toLocaleString()} coins (${abbreviateGP(totalForDisplay)} GP)`,
         inline: true
-      })
-      .setColor(isClan ? 0x820000 : 0x820000)
+      }])
+      .setThumbnail(EMBED_ICON)
+      .setColor(0x820000)
       .setTimestamp();
 
-        // Send the main loot-detected embed
     const ch = await client.channels.fetch(DISCORD_CHANNEL_ID);
-    if (ch?.isTextBased()) await ch.send({ embeds: [embed] });
-
-    // ── Raglist alert ─────────────────────────────────────────
-    if (raglist.has(ci(victim))) {
-      const bountyObj   = bounties[ci(victim)];
-      const bountyTotal = bountyObj ? bountyObj.total : 0;
-
-      const bountyLine = bountyTotal
-        ? `\nCurrent bounty: **${bountyTotal.toLocaleString()} coins (${abbreviateGP(bountyTotal)})**`
-        : "";
-
-      await sendEmbed(
-        ch,
-        "⚔️ Raglist Alert!",
-        `@here **${victim}** is on the Raglist! Time to hunt them down!${bountyLine}`
-      );
+    if (ch?.isTextBased()) {
+      await ch.send({ embeds: [embed] });
     }
 
-    // ── Bounty claimed ────────────────────────────────────────
-    const bounty = bounties[ci(victim)];
-    if (bounty && bounty.total > 0) {
-      const mentions = Object.keys(bounty.posters)
-        .map(id => `<@${id}>`)
-        .join(" ");
-
-      const claimEmbed = new EmbedBuilder()
-        .setTitle("💸 Bounty Claimed!")
-        .setDescription(
-          `**${victim}** was killed by **${killer}**.\n` +
-          `Total bounty paid out: **${bounty.total.toLocaleString()} coins (${abbreviateGP(bounty.total)})**`
-        )
-        .setColor(0x820000)
-        .setTimestamp();
-
-      await ch.send({ content: mentions, embeds: [claimEmbed] });
-
-		if (!bounty.persistent) {
-		delete bounties[ci(victim)]; // one‑shot bounty
-}
-      saveData();
-    }
-
-    // persist everything done above
+    // Persist & respond
     saveData();
     return res.status(200).send("ok");
   } catch (err) {
