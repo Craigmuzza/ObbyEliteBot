@@ -506,23 +506,10 @@ client.on(Events.MessageCreate, async (msg) => {
       return sendEmbed(msg.channel, "⏳ On Cooldown", "Please wait a few seconds between commands.");
     }
 
-    // parse out command + args
+    // parse
     const lc   = text.toLowerCase();
     const args = text.split(/\s+/);
     const cmd  = args.shift();
-
-    // ── helper for lootboard ─────────────────────────────────────
-    const makeLootBoard = (arr) => {
-      const sums = {};
-      arr.forEach(({ killer, gp }) => {
-        const k = killer.toLowerCase();
-        sums[k] = (sums[k]||0) + gp;
-      });
-      return Object.entries(sums)
-        .sort((a,b) => b[1] - a[1])
-        .slice(0,10)
-        .map(([n,v],i) => ({ rank: i+1, name: n, gp: v }));
-    };
 
     // ── !hiscores ────────────────────────────────────────────────
     if (cmd === "!hiscores") {
@@ -532,14 +519,14 @@ client.on(Events.MessageCreate, async (msg) => {
       }
       const nameFilter = args.join(" ").toLowerCase() || null;
 
+      // filter by current event + period
       const all = filterByPeriod(
         killLog.filter(e => currentEvent === "default" ? true : e.event === currentEvent),
         period
       );
-      const normal = all;
-      const clan   = []; // stubbed out
 
-      const makeBoard = (arr) => {
+      // top-10 kills
+      const makeBoard = arr => {
         const counts = {};
         arr.forEach(({ killer }) => {
           const k = killer.toLowerCase();
@@ -551,12 +538,16 @@ client.on(Events.MessageCreate, async (msg) => {
           .slice(0,10)
           .map(([n,v],i) => ({ rank: i+1, name: n, kills: v }));
       };
+      const normalBoard = makeBoard(all);
 
-      const normalBoard = makeBoard(normal);
-      const clanBoard   = makeBoard(clan);
+      // dynamic title
+      const title =
+        `🏆 Hiscores (${period})` +
+        (currentEvent !== "default" ? ` — Event: ${currentEvent}` : "");
 
+      // build + send embed
       const e1 = new EmbedBuilder()
-        .setTitle(`🏆 Hiscores (${period})`)
+        .setTitle(title)
         .setColor(0x004200)
         .setThumbnail(EMBED_ICON)
         .setTimestamp();
@@ -564,30 +555,20 @@ client.on(Events.MessageCreate, async (msg) => {
         e1.setDescription("No kills in that period.");
       } else {
         normalBoard.forEach(r =>
-          e1.addFields({ name: `${r.rank}. ${r.name}`, value: `Kills: ${r.kills}`, inline: false })
+          e1.addFields({
+            name:  `${r.rank}. ${r.name}`,
+            value: `Kills: ${r.kills}`,
+            inline: false
+          })
         );
       }
-
-      const embeds = [e1];
-      if (currentEvent !== "default" && clanBoard.length) {
-        const e2 = new EmbedBuilder()
-          .setTitle(`✨ Clan Hiscores (${period}) — Event: ${currentEvent}`)
-          .setColor(0x004200)
-          .setThumbnail(EMBED_ICON)
-          .setTimestamp();
-        clanBoard.forEach(r =>
-          e2.addFields({ name: `${r.rank}. ${r.name}`, value: `Kills: ${r.kills}`, inline: false })
-        );
-        embeds.push(e2);
-      }
-
-      return msg.channel.send({ embeds });
+      return msg.channel.send({ embeds: [e1] });
     }
 
     // ── !totalgp / !totalloot ────────────────────────────────────
     if (cmd === "!totalgp" || cmd === "!totalloot") {
       const { gpTotal } = getEventData();
-      const totalGP = Object.values(gpTotal).reduce((s,g)=>s+g,0);
+      const totalGP = Object.values(gpTotal).reduce((s,g) => s+g, 0);
       return sendEmbed(
         msg.channel,
         "💰 Total Loot",
@@ -595,66 +576,68 @@ client.on(Events.MessageCreate, async (msg) => {
       );
     }
 
-// ── !lootboard ────────────────────────────────────────────────
-if (cmd === "!lootboard") {
-  // period argument
-  let period = "all";
-  if (args[0] && ["daily","weekly","monthly","all"].includes(args[0])) {
-    period = args.shift();
-  }
-  const nameFilter = args.join(" ").toLowerCase() || null;
+    // ── !lootboard ────────────────────────────────────────────────
+    if (cmd === "!lootboard") {
+      let period = "all";
+      if (args[0] && ["daily","weekly","monthly","all"].includes(args[0])) {
+        period = args.shift();
+      }
+      const nameFilter = args.join(" ").toLowerCase() || null;
 
-  // filter by time and drop any clan entries
-  const all = filterByPeriod(
-    lootLog.filter(e => currentEvent === "default" ? true : e.event === currentEvent),
-    period
-  );
-  const normal = all.filter(e => !e.isClan);
+      // filter by current event + period, drop clan
+      const all = filterByPeriod(
+        lootLog.filter(e => currentEvent === "default" ? true : e.event === currentEvent),
+        period
+      ).filter(e => !e.isClan);
 
-  // build top-10
-  const makeLootBoard = arr => {
-    const sums = {};
-    arr.forEach(({ killer, gp }) => {
-      const k = killer.toLowerCase();
-      if (nameFilter && k !== nameFilter) return;
-      sums[k] = (sums[k]||0) + gp;
-    });
-    return Object.entries(sums)
-      .sort((a,b) => b[1] - a[1])
-      .slice(0,10)
-      .map(([n,v],i) => ({ rank:i+1, name:n, gp:v }));
-  };
-  const normalBoard = makeLootBoard(normal);
+      // top-10 GP
+      const makeLootBoard = arr => {
+        const sums = {};
+        arr.forEach(({ killer, gp }) => {
+          const k = killer.toLowerCase();
+          if (nameFilter && k !== nameFilter) return;
+          sums[k] = (sums[k]||0) + gp;
+        });
+        return Object.entries(sums)
+          .sort((a,b) => b[1] - a[1])
+          .slice(0,10)
+          .map(([n,v],i) => ({ rank: i+1, name: n, gp: v }));
+      };
+      const normalBoard = makeLootBoard(all);
 
-  // build embed
-  const e1 = new EmbedBuilder()
-    .setTitle(`💰 Lootboard (${period})`)
-    .setColor(0x004200)
-    .setThumbnail(EMBED_ICON)
-    .setTimestamp();
+      // dynamic title
+      const title =
+        `💰 Lootboard (${period})` +
+        (currentEvent !== "default" ? ` — Event: ${currentEvent}` : "");
 
-  if (!normalBoard.length) {
-    e1.setDescription("No loot in that period.");
-  } else {
-    normalBoard.forEach(r =>
-      e1.addFields({
-        name:  `${r.rank}. ${r.name}`,
-        value: `${r.gp.toLocaleString()} coins (${abbreviateGP(r.gp)})`,
-        inline: false
-      })
-    );
-  }
-
-  // send only the one embed
-  return msg.channel.send({ embeds: [e1] });
+      // build + send embed
+      const e1 = new EmbedBuilder()
+        .setTitle(title)
+        .setColor(0x004200)
+        .setThumbnail(EMBED_ICON)
+        .setTimestamp();
+      if (!normalBoard.length) {
+        e1.setDescription("No loot in that period.");
+      } else {
+        normalBoard.forEach(r =>
+          e1.addFields({
+            name:  `${r.rank}. ${r.name}`,
+            value: `${r.gp.toLocaleString()} coins (${abbreviateGP(r.gp)})`,
+            inline: false
+          })
+        );
+      }
+      return msg.channel.send({ embeds: [e1] });
     }
 
-    // ── !listevents, !createevent, !finishevent, !resetall, !help ─
+    // ── Events & helper commands ─────────────────────────────────
     if (lc === "!listevents") {
       return sendEmbed(
         msg.channel,
         "📅 Events",
-        Object.keys(events).map(e => `• ${e}${e===currentEvent?" (current)":""}`).join("\n")
+        Object.keys(events)
+          .map(e => `• ${e}${e === currentEvent ? " (current)" : ""}`)
+          .join("\n")
       );
     }
     if (lc.startsWith("!createevent ")) {
@@ -677,6 +660,7 @@ if (cmd === "!lootboard") {
       return sendEmbed(msg.channel, "✅ Event Finished", `Saved to \`${file}\`, back to **default**.`);
     }
     if (cmd === "!resetall") {
+      // wipe logs & events
       killLog.length = 0;
       lootLog.length = 0;
       for (const ev in events) delete events[ev];
@@ -703,7 +687,8 @@ if (cmd === "!lootboard") {
     console.error("[command] Error handling command:", err);
     return sendEmbed(msg.channel, "⚠️ Error", "An error occurred while processing your command.");
   }
-});  // ← end of your MessageCreate listener
+});
+
 
 
 client.once("ready", () => console.log(`[discord] ready: ${client.user.tag}`));
