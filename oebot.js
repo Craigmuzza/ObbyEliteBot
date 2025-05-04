@@ -244,7 +244,7 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
       event: currentEvent
     });
 
-    // 3) Build & send embed
+    // 3) Build the embed
     const total = currentEvent === "default"
       ? gpTotal[ci(killer)]
       : lootTotals[ci(killer)];
@@ -259,8 +259,20 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
       .setColor(0x820000)
       .setThumbnail(EMBED_ICON)
       .setTimestamp();
+
+    // ── DEBUG: log right before sending
+    console.log(`[processLoot] ✉️  sending embed for ${killer} → ${victim}, ${gp}gp`);
+
+    // fetch the channel
     const ch = await client.channels.fetch(DISCORD_CHANNEL_ID);
-    if (ch?.isTextBased()) await ch.send({ embeds: [embed] });
+    console.log("[processLoot] ➡️  fetched channel:", ch?.id, "isTextBased?", ch?.isTextBased());
+
+    if (ch?.isTextBased()) {
+      const sent = await ch.send({ embeds: [embed] });
+      console.log("[processLoot] ✅ embed sent, message ID", sent.id);
+    } else {
+      console.error("[processLoot] ❌ channel not text-based or fetch failed");
+    }
 
     // 4) Persist & finish
     saveData();
@@ -268,9 +280,10 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
 
   } catch (err) {
     console.error("[processLoot] Error:", err);
-    return res.status(500).send("internal error");
+    if (!res.headersSent) res.status(500).send("internal error");
   }
 }
+
 
 
 async function processKill(killer, victim, dedupKey, res) {
