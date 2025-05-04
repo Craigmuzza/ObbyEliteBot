@@ -381,7 +381,8 @@ app.post(
 
     // 7. Hand off to processLoot (which will send the embed & persist)
     console.log(`[dink] seen by=${data.playerName} | msg=${msgText}`);
-    await processLoot(
+    // return here so Express exits the handler as soon as processLoot() sends its response
+    return processLoot(
       m[1],                              // killer
       m[2],                              // victim
       Number(m[3].replace(/,/g, "")),    // gp
