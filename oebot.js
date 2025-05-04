@@ -328,7 +328,7 @@ app.post(
     { name: "file",         maxCount: 1 }
   ]),
   async (req, res) => {
-    // 1) Grab raw JSON
+    // 1. grab raw JSON (works for multipart or plain JSON)
     let raw = req.body?.payload_json;
     if (Array.isArray(raw)) raw = raw[0];
     if (!raw && Object.keys(req.body || {}).length) {
@@ -336,15 +336,15 @@ app.post(
     }
     if (!raw) return res.status(400).send("no payload_json");
 
-    // 2) Parse
+    // 2. parse
     let data;
     try {
       data = JSON.parse(raw);
-    } catch {
+    } catch (err) {
       return res.status(400).send("bad JSON");
     }
 
-    // 3) Only clan‐chat text messages
+    // 3. only care about clan‐chat text messages
     if (
       data.type !== "CHAT" ||
       !["CLAN_CHAT", "CLAN_MESSAGE"].includes(data.extra?.type) ||
@@ -353,40 +353,25 @@ app.post(
       return res.status(204).end();
     }
 
-    // 4) Only our clan ("Obby Elite")
-    const clanName = (data.clanName || data.extra.source || "").toLowerCase();
-    if (clanName !== "obby elite") {
-      return res.status(204).end();
+    // 4. run your loot regex
+    const msg = data.extra.message;
+    const m = msg.match(LOOT_RE);
+    if (m) {
+      // processLoot handles the HTTP response for us
+      await processLoot(
+        m[1],                               // killer
+        m[2],                               // victim
+        Number(m[3].replace(/,/g, "")),     // gp
+        msg.trim(),                         // dedupKey (just use the raw message)
+        res
+      );
+      return; // done
     }
 
-    // 5) Dedupe identical loot lines for 10s
-    const msgText  = data.extra.message.trim();
-    const dedupKey = msgText;
-    const nowMs    = Date.now();
-    if (seen.has(dedupKey) && nowMs - seen.get(dedupKey) < DEDUP_MS) {
-      return res.status(204).end();
-    }
-    seen.set(dedupKey, nowMs);
-
-    // 6) Match & process
-    const m = msgText.match(LOOT_RE);
-    if (!m) {
-      return res.status(204).end();
-    }
-
-    // 7) Hand off to processLoot & return
-    console.log(`[dink] seen by=${data.playerName} | msg=${msgText}`);
-    return processLoot(
-      m[1],                               // killer
-      m[2],                               // victim
-      Number(m[3].replace(/,/g, "")),     // gp
-      dedupKey,                           // dedup key
-      res
-    );
+    // 5. nothing to do
+    res.status(204).end();
   }
 );
-
-
 
 
 // ── Startup ───────────────────────────────────────────────────
