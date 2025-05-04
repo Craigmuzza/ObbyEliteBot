@@ -399,7 +399,7 @@ app.post(
       return res.status(400).send("bad JSON");
     }
 
-    // 3. Only care about clan-chat messages
+    // 3. Only care about clan‐chat messages
     if (
       data.type !== "CHAT" ||
       !["CLAN_CHAT", "CLAN_MESSAGE"].includes(data.extra?.type) ||
@@ -408,16 +408,16 @@ app.post(
       return res.status(204).end();
     }
 
-    // 4. Only from our clan
+    // 4. Only from our clan ("Obby Elite")
     const clanName = (data.clanName || data.extra.source || "").toLowerCase();
     if (clanName !== "obby elite") {
       return res.status(204).end();
     }
 
     // 5. Deduplicate on the exact loot message for 10 seconds
-    const msgText   = data.extra.message.trim();
-    const dedupKey  = msgText; 
-    const nowMs     = Date.now();
+    const msgText  = data.extra.message.trim();
+    const dedupKey = msgText;
+    const nowMs    = Date.now();
     if (seen.has(dedupKey) && nowMs - seen.get(dedupKey) < DEDUP_MS) {
       return res.status(204).end();
     }
@@ -429,17 +429,18 @@ app.post(
       return res.status(204).end();
     }
 
-    // 7. Log once, then hand off to processLoot
+    // 7. Hand off to processLoot (which will send the embed & persist)
     console.log(`[dink] seen by=${data.playerName} | msg=${msgText}`);
     await processLoot(
-      m[1],               // killer
-      m[2],               // victim
-      Number(m[3].replace(/,/g, "")), // gp
-      dedupKey,           // dedup key
+      m[1],                              // killer
+      m[2],                              // victim
+      Number(m[3].replace(/,/g, "")),    // gp
+      dedupKey,                          // dedup key
       res
     );
   }
 );
+
 
 
 // ── Startup ───────────────────────────────────────────────────
