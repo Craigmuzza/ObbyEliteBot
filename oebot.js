@@ -383,83 +383,57 @@ app.post(
     { name: "file",         maxCount: 1 }
   ]),
   async (req, res) => {
-    /* --------------------------------------------------
-       1. get the raw JSON string – works for both
-          multipart and plain application/json
-    --------------------------------------------------- */
+    // 1. Grab the raw JSON (works with multipart or plain JSON)
     let raw = req.body?.payload_json;
     if (Array.isArray(raw)) raw = raw[0];
     if (!raw && Object.keys(req.body || {}).length) {
-      raw = JSON.stringify(req.body);          // plain JSON POST
+      raw = JSON.stringify(req.body);
     }
+    if (!raw) return res.status(400).send("no payload_json");
 
-    /* --------------------------------------------------
-       2. log everything we received
-    --------------------------------------------------- */
-    const util = (await import("node:util")).default;
-    console.log("——— /dink incoming ———");
-    console.log("Headers:", util.inspect(req.headers, { depth: 2, colors: true }));
-    console.log("Body (raw):", raw);
-
-    if (!raw) {
-      console.log("⚠️  no payload_json field");
-      return res.status(400).send("no payload_json");
-    }
-
-    /* --------------------------------------------------
-       3. parse it (with error logging)
-    --------------------------------------------------- */
+    // 2. Parse it
     let data;
     try {
       data = JSON.parse(raw);
-    } catch (err) {
-      console.error("⚠️  JSON parse failed:", err);
+    } catch {
       return res.status(400).send("bad JSON");
     }
 
-    console.log("Body (parsed):", util.inspect(data, { depth: 5, colors: true }));
-
-    const rsn = data.playerName;
-    const msg = data.extra?.message;
-    if (typeof msg === "string") {
-      console.log(`[dink] seen by=${rsn} | msg=${msg}`);
+    // 3. Only care about clan-chat messages with text
+    if (
+      data.type !== "CHAT" ||
+      !["CLAN_CHAT", "CLAN_MESSAGE"].includes(data.extra?.type) ||
+      typeof data.extra.message !== "string"
+    ) {
+      return res.status(204).end();
     }
 
-    /* --------------------------------------------------
-       4. if it’s a chat message, try the loot regex
-    --------------------------------------------------- */
-	if (
-		  data.type === "CHAT" &&
-		  ["CLAN_CHAT", "CLAN_MESSAGE"].includes(data.extra?.type) &&
-		  typeof msg === "string"
-		) {
-		  // only process messages from the Obby Elite clan
-		  const clanName = (data.extra.clanName || "").toLowerCase();
-		  if (clanName !== "obby elite") {
-			console.log(`[dink] skipped clan: "${clanName}"`);
-			return res.status(204).end();
-		  }
+    // 4. Only from our clan
+    //    incoming JSON has `data.clanName` or `data.extra.source`
+    const clanName = (data.clanName || data.extra.source || "").toLowerCase();
+    if (clanName !== "obby elite") {
+      return res.status(204).end();
+    }
 
-		  // now try your loot regex
-		  const m = msg.match(LOOT_RE);
-		  if (m) {
-			await processLoot(
-			  m[1],                               // killer
-			  m[2],                               // victim
-			  Number(m[3].replace(/,/g, "")),     // gp
-			  msg.trim(),                         // dedup key
-			  res
-			);
-			return;  // we handled it, so bail out
-		  }
-		}
+    // 5. Match and process loot
+    const msg = data.extra.message;
+    const m = msg.match(LOOT_RE);
+    if (m) {
+      await processLoot(
+        m[1],                               // killer
+        m[2],                               // victim
+        Number(m[3].replace(/,/g, "")),     // gp
+        msg.trim(),                         // dedup key
+        res
+      );
+      return;
+    }
 
-    /* --------------------------------------------------
-       5. fall‑through: nothing we care about
-    --------------------------------------------------- */
+    // 6. Nothing to do
     res.status(204).end();
   }
 );
+
 
 // ── Startup ───────────────────────────────────────────────────
 loadData();
