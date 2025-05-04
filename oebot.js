@@ -399,7 +399,7 @@ app.post(
       return res.status(400).send("bad JSON");
     }
 
-    // 3. Only care about clan-chat messages with text
+    // 3. Only care about clan-chat messages
     if (
       data.type !== "CHAT" ||
       !["CLAN_CHAT", "CLAN_MESSAGE"].includes(data.extra?.type) ||
@@ -409,31 +409,35 @@ app.post(
     }
 
     // 4. Only from our clan
-    //    incoming JSON has `data.clanName` or `data.extra.source`
     const clanName = (data.clanName || data.extra.source || "").toLowerCase();
-   if (clanName !== "obby elite") {
-     console.log(`[dink] skipped clan: "${clanName}"`);
-     return res.status(204).end();
-   }
-
-    // 5. Match and process loot
-    const msg = data.extra.message;
-	console.log(`[dink] seen by=${data.playerName} | msg=${msg}`);
-	
-    const m = msg.match(LOOT_RE);
-    if (m) {
-      await processLoot(
-        m[1],                               // killer
-        m[2],                               // victim
-        Number(m[3].replace(/,/g, "")),     // gp
-        msg.trim(),                         // dedup key
-        res
-      );
-      return;
+    if (clanName !== "obby elite") {
+      return res.status(204).end();
     }
 
-    // 6. Nothing to do
-    res.status(204).end();
+    // 5. Deduplicate on the exact loot message for 10 seconds
+    const msgText   = data.extra.message.trim();
+    const dedupKey  = msgText; 
+    const nowMs     = Date.now();
+    if (seen.has(dedupKey) && nowMs - seen.get(dedupKey) < DEDUP_MS) {
+      return res.status(204).end();
+    }
+    seen.set(dedupKey, nowMs);
+
+    // 6. Match & process loot
+    const m = msgText.match(LOOT_RE);
+    if (!m) {
+      return res.status(204).end();
+    }
+
+    // 7. Log once, then hand off to processLoot
+    console.log(`[dink] seen by=${data.playerName} | msg=${msgText}`);
+    await processLoot(
+      m[1],               // killer
+      m[2],               // victim
+      Number(m[3].replace(/,/g, "")), // gp
+      dedupKey,           // dedup key
+      res
+    );
   }
 );
 
