@@ -428,24 +428,31 @@ app.post(
     /* --------------------------------------------------
        4. if it’s a chat message, try the loot regex
     --------------------------------------------------- */
-    if (
-      data.type === "CHAT" &&
-      ["CLAN_CHAT", "CLAN_MESSAGE"].includes(data.extra?.type) &&
-      typeof msg === "string"
-    ) {
-      const m = msg.match(LOOT_RE);
-      if (m) {
-        // processLoot returns a promise, so await it
-        await processLoot(
-          m[1],                               // killer
-          m[2],                               // victim
-          Number(m[3].replace(/,/g, "")),     // gp
-          msg.trim(),                         // dedup key
-          res
-        );
-        return;                               // <- we handled the response
-      }
-    }
+	if (
+		  data.type === "CHAT" &&
+		  ["CLAN_CHAT", "CLAN_MESSAGE"].includes(data.extra?.type) &&
+		  typeof msg === "string"
+		) {
+		  // only process messages from the Obby Elite clan
+		  const clanName = (data.extra.clanName || "").toLowerCase();
+		  if (clanName !== "obby elite") {
+			console.log(`[dink] skipped clan: "${clanName}"`);
+			return res.status(204).end();
+		  }
+
+		  // now try your loot regex
+		  const m = msg.match(LOOT_RE);
+		  if (m) {
+			await processLoot(
+			  m[1],                               // killer
+			  m[2],                               // victim
+			  Number(m[3].replace(/,/g, "")),     // gp
+			  msg.trim(),                         // dedup key
+			  res
+			);
+			return;  // we handled it, so bail out
+		  }
+		}
 
     /* --------------------------------------------------
        5. fall‑through: nothing we care about
