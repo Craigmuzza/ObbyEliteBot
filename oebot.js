@@ -661,7 +661,6 @@ client.on(Events.MessageCreate, async (msg) => {
         .setTimestamp()
         .addFields([
           { name: "Stats", value: "`!hiscores [period]`\n`!lootboard [period]`\n`!totalgp`", inline:false },
-          { name: "Events", value:"`!createevent <name>`\n`!finishevent`\n`!listevents`\n`!resetall`", inline:false },
           { name: "Misc",  value:"`!help`", inline:false }
         ]);
       return msg.channel.send({ embeds: [help] });
