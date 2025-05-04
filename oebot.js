@@ -411,12 +411,15 @@ app.post(
     // 4. Only from our clan
     //    incoming JSON has `data.clanName` or `data.extra.source`
     const clanName = (data.clanName || data.extra.source || "").toLowerCase();
-    if (clanName !== "obby elite") {
-      return res.status(204).end();
-    }
+   if (clanName !== "obby elite") {
+     console.log(`[dink] skipped clan: "${clanName}"`);
+     return res.status(204).end();
+   }
 
     // 5. Match and process loot
     const msg = data.extra.message;
+	console.log(`[dink] seen by=${data.playerName} | msg=${msg}`);
+	
     const m = msg.match(LOOT_RE);
     if (m) {
       await processLoot(
