@@ -235,6 +235,15 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
     killLog.push({ killer, victim, gp, timestamp: Date.now(), event: currentEvent });
     deathCounts[ci(victim)] = (deathCounts[ci(victim)] || 0) + 1;
 
+    // ← PUSH INTO lootLog so !lootboard will have data to display
+    lootLog.push({
+      killer,
+      gp,
+      timestamp: now(),
+      isClan: false,           // or your real is-clan check
+      event: currentEvent
+    });
+
     // 3) Build & send embed
     const total = currentEvent === "default"
       ? gpTotal[ci(killer)]
@@ -344,7 +353,7 @@ app.post(
       return res.status(400).send("bad JSON");
     }
 
-    // 3. only care about clan‐chat text messages
+    // 3. only care about clan-chat text messages
     if (
       data.type !== "CHAT" ||
       !["CLAN_CHAT", "CLAN_MESSAGE"].includes(data.extra?.type) ||
@@ -353,22 +362,36 @@ app.post(
       return res.status(204).end();
     }
 
-    // 4. run your loot regex
-    const msg = data.extra.message;
-    const m = msg.match(LOOT_RE);
+    // 4. only from our clan
+    const clanName = (data.clanName || data.extra.source || "").toLowerCase();
+    if (clanName !== "obby elite") {
+      return res.status(204).end();
+    }
+
+    // 5. dedupe identical loot lines for DEDUP_MS
+    const msgText  = data.extra.message.trim();
+    const dedupKey = msgText;
+    const nowMs    = Date.now();
+    if (seen.has(dedupKey) && nowMs - seen.get(dedupKey) < DEDUP_MS) {
+      return res.status(204).end();
+    }
+    seen.set(dedupKey, nowMs);
+
+    // 6. run your loot regex
+    const m = msgText.match(LOOT_RE);
     if (m) {
       // processLoot handles the HTTP response for us
       await processLoot(
-        m[1],                               // killer
-        m[2],                               // victim
-        Number(m[3].replace(/,/g, "")),     // gp
-        msg.trim(),                         // dedupKey (just use the raw message)
+        m[1],                             // killer
+        m[2],                             // victim
+        Number(m[3].replace(/,/g, "")),   // gp
+        dedupKey,                         // dedupKey
         res
       );
       return; // done
     }
 
-    // 5. nothing to do
+    // 7. nothing to do
     res.status(204).end();
   }
 );
