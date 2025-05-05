@@ -393,7 +393,9 @@ app.post(
       return res.status(204).end();
     }
 
-    console.log(`[dink] ⚔️  processing loot message: ${msgText}`);
+	const rsn = data.playerName || "unknown";
+	console.log(`[dink] seen by=${rsn} | ⚔️ processing loot message: ${msgText}`);
+
     // hand off to processLoot (which has its own de-dupe)
     await processLoot(
       m[1],                             // killer
