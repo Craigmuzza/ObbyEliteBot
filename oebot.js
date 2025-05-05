@@ -215,7 +215,12 @@ function getEventData() {
   return events[currentEvent];
 }
 
-// ── Core processors ───────────────────────────────────────────
+// ── add these near the top, alongside your other constants ─────
+const GOLD_THRESHOLD = 10_000_000;
+const COLOR_NORMAL  = 0x820000;
+const COLOR_GOLD    = 0xFFD700;  // “gold”
+
+
 async function processLoot(killer, victim, gp, dedupKey, res) {
   try {
     // 1) Validate & de-dupe
@@ -235,7 +240,7 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
     killLog.push({ killer, victim, gp, timestamp: Date.now(), event: currentEvent });
     deathCounts[ci(victim)] = (deathCounts[ci(victim)] || 0) + 1;
 
-    // ← PUSH INTO lootLog so !lootboard will have data to display
+    // ← PUSH INTO lootLog so !lootboard will have data
     lootLog.push({
       killer,
       gp,
@@ -244,35 +249,28 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
       event: currentEvent
     });
 
-    // 3) Build the embed
+    // 3) Build & send embed
     const total = currentEvent === "default"
       ? gpTotal[ci(killer)]
       : lootTotals[ci(killer)];
+
+    // pick gold vs normal
+    const color = gp >= GOLD_THRESHOLD ? COLOR_GOLD : COLOR_NORMAL;
+
     const embed = new EmbedBuilder()
       .setTitle("💰 Loot Detected")
       .setDescription(`**${killer}** defeated **${victim}** and received **${gp.toLocaleString()} coins**`)
       .addFields({
-        name: currentEvent === "default" ? "Total GP Earned" : "Event GP Gained",
+        name:  currentEvent === "default" ? "Total GP Earned" : "Event GP Gained",
         value: `${total.toLocaleString()} coins (${abbreviateGP(total)} GP)`,
         inline: true
       })
-      .setColor(0x820000)
+      .setColor(color)
       .setThumbnail(EMBED_ICON)
       .setTimestamp();
 
-    // ── DEBUG: log right before sending
-    console.log(`[processLoot] ✉️  sending embed for ${killer} → ${victim}, ${gp}gp`);
-
-    // fetch the channel
     const ch = await client.channels.fetch(DISCORD_CHANNEL_ID);
-    console.log("[processLoot] ➡️  fetched channel:", ch?.id, "isTextBased?", ch?.isTextBased());
-
-    if (ch?.isTextBased()) {
-      const sent = await ch.send({ embeds: [embed] });
-      console.log("[processLoot] ✅ embed sent, message ID", sent.id);
-    } else {
-      console.error("[processLoot] ❌ channel not text-based or fetch failed");
-    }
+    if (ch?.isTextBased()) await ch.send({ embeds: [embed] });
 
     // 4) Persist & finish
     saveData();
@@ -280,11 +278,9 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
 
   } catch (err) {
     console.error("[processLoot] Error:", err);
-    if (!res.headersSent) res.status(500).send("internal error");
+    return res.status(500).send("internal error");
   }
 }
-
-
 
 async function processKill(killer, victim, dedupKey, res) {
   try {
