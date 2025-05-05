@@ -117,7 +117,7 @@ function abbreviateGP(n) {
 }
 
 // ── Send an embed to a channel ────────────────────────────────
-function sendEmbed(channel, title, desc, color = 0xFF0000) {
+function sendEmbed(channel, title, desc, color = 0x004200) {
   const embed = new EmbedBuilder()
     .setTitle(title)
     .setDescription(desc)
