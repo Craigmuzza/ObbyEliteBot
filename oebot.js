@@ -614,6 +614,43 @@ client.on(Events.MessageCreate, async (msg) => {
       saveData();
       return sendEmbed(msg.channel, "✅ Event Finished", `Saved to \`${file}\`, back to **default**.`);
     }
+	// ── !reset <player> ───────────────────────────────────────────
+	if (cmd === "!reset") {
+	  const target = args.join(" ").toLowerCase();
+	  if (!target) {
+		return sendEmbed(msg.channel, "⚠️ Usage", "`!reset <player>`");
+	  }
+
+	  // 1) remove from current event buckets
+	  const ev = getEventData();
+	  delete ev.kills[target];
+	  delete ev.lootTotals[target];
+	  delete ev.gpTotal[target];
+	  delete ev.deathCounts[target];
+
+	  // 2) purge from the in-memory logs
+	  const newKillLog = killLog.filter(e =>
+		e.killer.toLowerCase() !== target &&
+		e.victim.toLowerCase() !== target
+	  );
+	  killLog.length = 0;
+	  killLog.push(...newKillLog);
+
+	  const newLootLog = lootLog.filter(e =>
+		e.killer.toLowerCase() !== target
+	  );
+	  lootLog.length = 0;
+	  lootLog.push(...newLootLog);
+
+	  // 3) persist
+	  saveData();
+
+	  return sendEmbed(
+		msg.channel,
+		"🔄 Player Reset",
+		`All stats for **${target}** have been wiped for the current event.`
+	  );
+	}
     if (cmd === "!resetall") {
       // wipe logs & events
       killLog.length = 0;
