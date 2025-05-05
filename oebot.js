@@ -91,6 +91,7 @@ const events   = {
 const commandCooldowns = new Collection();
 const killLog = [];
 const lootLog = [];
+const seenByLog = [];
 
 // ── Helpers ───────────────────────────────────────────────────
 const ci  = s => (s||"").toLowerCase().trim();
@@ -157,14 +158,11 @@ function saveData() {
   try {
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
-    fs.writeFileSync(
-      path.join(DATA_DIR, "state.json"),
-      JSON.stringify(
-       { currentEvent, events, killLog, lootLog,},
-       null,
-       2
-	   )
-    );
+   fs.writeFileSync(path.join(DATA_DIR, "state.json"),
+     JSON.stringify({
+       currentEvent, events, killLog, lootLog, seenByLog
+     }, null, 2)
+   );
     
     commitToGitHub();  // Commit the data to GitHub
   } catch (err) {
@@ -188,7 +186,7 @@ function loadData() {
       Object.assign(events, st.events || {});
       killLog.push(...(st.killLog || []));
       lootLog.push(...(st.lootLog || []));
-      if (st.bounties) Object.assign(bounties, st.bounties);
+      if (Array.isArray(st.seenByLog)) seenByLog.push(...st.seenByLog);
       console.log("[init] loaded saved state");
     }
 
@@ -347,7 +345,6 @@ app.post("/logKill", async (req, res) => {
 });
 
 /* ─────────────────────────── RuneLite “dink” webhook ────────────────────────── */
-/* ─────────────────────────── RuneLite “dink” webhook ────────────────────────── */
 app.post(
   "/dink",
   upload.fields([
@@ -394,6 +391,14 @@ app.post(
     }
 
 	const rsn = data.playerName || "unknown";
+	
+		 // record it
+	 seenByLog.push({
+	   player:    rsn,
+	   message:   msgText,
+	   timestamp: Date.now()
+	 });
+		
 	console.log(`[dink] seen by=${rsn} | ⚔️ processing loot message: ${msgText}`);
 
     // hand off to processLoot (which has its own de-dupe)
@@ -670,6 +675,24 @@ client.on(Events.MessageCreate, async (msg) => {
       saveData();
       return sendEmbed(msg.channel, "🔄 Reset Complete", "All hiscores and lootboard data have been wiped and reset to default.");
     }
+	
+		if (cmd === "!seenby") {
+	  // how many entries? default 10
+	  let count = Number(args[0]);
+	  if (isNaN(count) || count < 1) count = 10;
+	  const slice = seenByLog.slice(-count);
+	  if (!slice.length) {
+		return sendEmbed(msg.channel, "👀 Seen By", "No entries yet.");
+	  }
+	  // build a simple text list
+	  const lines = slice.map(e => {
+		const t = new Date(e.timestamp).toLocaleTimeString();
+		return `• [${t}] ${e.player} saw “${e.message}”`;
+	  }).join("\n");
+	  return sendEmbed(msg.channel, `👀 Last ${lines.split("\n").length} Seen By`, lines, 0x004200);
+	}
+
+	
     if (lc === "!help") {
       const help = new EmbedBuilder()
         .setTitle("🛠 OE Loot Bot Help")
