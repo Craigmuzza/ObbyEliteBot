@@ -465,6 +465,13 @@ client.on(Events.MessageCreate, async (msg) => {
     const lc   = text.toLowerCase();
     const args = text.split(/\s+/);
     const cmd  = args.shift();
+	
+	// ── AUTO-DELETE these commands ───────────────────────────────
+    const hidden = ["!createevent", "!finishevent", "!listevents", "!resetall", "!reset"];
+    if (hidden.includes(cmd)) {
+      // fire-and-forget; if it fails (no perms) we don’t care
+      msg.delete().catch(() => {});
+    }
 
     // ── !hiscores ────────────────────────────────────────────────
     if (cmd === "!hiscores") {
