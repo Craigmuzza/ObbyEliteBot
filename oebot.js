@@ -460,25 +460,25 @@ function toCSV(rows, headers) {
 // ── Discord commands ─────────────────────────────────────────
 client.on(Events.MessageCreate, async (msg) => {
   try {
-    // ignore bots & non-commands
+    // 1) ignore bots
     if (msg.author.bot) return;
+
+    // 2) only care about commands
     const text = msg.content.trim();
     if (!text.startsWith("!")) return;
+
+    // 3) immediately delete *all* commands
+    msg.delete().catch(() => {/* missing perms? ignore */});
+
+    // 4) rate-limit
     if (!checkCooldown(msg.author.id)) {
       return sendEmbed(msg.channel, "⏳ On Cooldown", "Please wait a few seconds between commands.");
     }
 
-    // parse
+    // 5) parse and handle your cmd as before
     const lc   = text.toLowerCase();
     const args = text.split(/\s+/);
     const cmd  = args.shift();
-	
-	// ── AUTO-DELETE these commands ───────────────────────────────
-    const hidden = ["!createevent", "!finishevent", "!listevents", "!resetall", "!reset"];
-    if (hidden.includes(cmd)) {
-      // fire-and-forget; if it fails (no perms) we don’t care
-      msg.delete().catch(() => {});
-    }
 
     // ── !hiscores ────────────────────────────────────────────────
     if (cmd === "!hiscores") {
