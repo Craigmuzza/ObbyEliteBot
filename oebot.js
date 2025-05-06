@@ -676,21 +676,26 @@ client.on(Events.MessageCreate, async (msg) => {
       return sendEmbed(msg.channel, "🔄 Reset Complete", "All hiscores and lootboard data have been wiped and reset to default.");
     }
 	
-		if (cmd === "!seenby") {
-	  // how many entries? default 10
-	  let count = Number(args[0]);
-	  if (isNaN(count) || count < 1) count = 10;
-	  const slice = seenByLog.slice(-count);
-	  if (!slice.length) {
-		return sendEmbed(msg.channel, "👀 Seen By", "No entries yet.");
-	  }
-	  // build a simple text list
-	  const lines = slice.map(e => {
-		const t = new Date(e.timestamp).toLocaleTimeString();
-		return `• [${t}] ${e.player} saw “${e.message}”`;
-	  }).join("\n");
-	  return sendEmbed(msg.channel, `👀 Last ${lines.split("\n").length} Seen By`, lines, 0x004200);
-	}
+	 if (cmd === "!seenby") {
+	   // collect the last N entries (default 10), but only show names
+	   let count = Number(args[0]);
+	   if (isNaN(count) || count < 1) count = 10;
+	   const slice = seenByLog.slice(-count);
+	   if (!slice.length) {
+		 return sendEmbed(msg.channel, "👀 Seen By", "No viewers recorded yet.");
+	   }
+
+	   // dedupe player names
+	   const names = [...new Set(slice.map(e => e.player))];
+
+	   // format as a simple comma-separated list
+	   return sendEmbed(
+		 msg.channel,
+		 `👀 Seen By (${names.length})`,
+		 names.join(", "),
+		 0x004200
+	   );
+	 }
 
 	
     if (lc === "!help") {
