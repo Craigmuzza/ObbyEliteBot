@@ -467,75 +467,61 @@ client.on(Events.MessageCreate, async (msg) => {
     const text = msg.content.trim();
     if (!text.startsWith("!")) return;
 
-    // 3) immediately delete *all* commands
-    msg.delete().catch(() => {/* missing perms? ignore */});
+    // 3) immediately delete the original command message
+    msg.delete().catch(() => {});
 
     // 4) rate-limit
     if (!checkCooldown(msg.author.id)) {
       return sendEmbed(msg.channel, "⏳ On Cooldown", "Please wait a few seconds between commands.");
     }
 
-    // 5) parse and handle your cmd as before
-    const lc   = text.toLowerCase();
-    const args = text.split(/\s+/);
-    const cmd  = args.shift();
+    // 5) parse command + args
+    const parts = text.slice(1).split(/\s+/);
+    const cmd   = parts.shift().toLowerCase();
+    const args  = parts;
 
     // ── !hiscores ────────────────────────────────────────────────
-    if (cmd === "!hiscores") {
+    if (cmd === "hiscores") {
       let period = "all";
       if (args[0] && ["daily","weekly","monthly","all"].includes(args[0])) {
         period = args.shift();
       }
       const nameFilter = args.join(" ").toLowerCase() || null;
 
-      // filter by current event + period
-      const all = filterByPeriod(
+      const allKills = filterByPeriod(
         killLog.filter(e => currentEvent === "default" ? true : e.event === currentEvent),
         period
       );
+      const counts = {};
+      allKills.forEach(({ killer }) => {
+        const k = killer.toLowerCase();
+        if (nameFilter && k !== nameFilter) return;
+        counts[k] = (counts[k]||0) + 1;
+      });
+      const board = Object.entries(counts)
+        .sort((a,b) => b[1] - a[1])
+        .slice(0,10)
+        .map(([n,v],i) => ({ rank: i+1, name: n, kills: v }));
 
-      // top-10 kills
-      const makeBoard = arr => {
-        const counts = {};
-        arr.forEach(({ killer }) => {
-          const k = killer.toLowerCase();
-          if (nameFilter && k !== nameFilter) return;
-          counts[k] = (counts[k]||0) + 1;
-        });
-        return Object.entries(counts)
-          .sort((a,b) => b[1] - a[1])
-          .slice(0,10)
-          .map(([n,v],i) => ({ rank: i+1, name: n, kills: v }));
-      };
-      const normalBoard = makeBoard(all);
-
-      // dynamic title
-      const title =
-        `🏆 Hiscores (${period})` +
+      const title = `🏆 Hiscores (${period})` +
         (currentEvent !== "default" ? ` — Event: ${currentEvent}` : "");
-
-      // build + send embed
       const e1 = new EmbedBuilder()
         .setTitle(title)
         .setColor(0x004200)
         .setThumbnail(EMBED_ICON)
         .setTimestamp();
-      if (!normalBoard.length) {
+      if (!board.length) {
         e1.setDescription("No kills in that period.");
       } else {
-        normalBoard.forEach(r =>
-          e1.addFields({
-            name:  `${r.rank}. ${r.name}`,
-            value: `Kills: ${r.kills}`,
-            inline: false
-          })
+        board.forEach(r =>
+          e1.addFields({ name: `${r.rank}. ${r.name}`, value: `Kills: ${r.kills}`, inline: false })
         );
       }
       return msg.channel.send({ embeds: [e1] });
     }
 
     // ── !totalgp / !totalloot ────────────────────────────────────
-    if (cmd === "!totalgp" || cmd === "!totalloot") {
+    if (cmd === "totalgp" || cmd === "totalloot") {
       const { gpTotal } = getEventData();
       const totalGP = Object.values(gpTotal).reduce((s,g) => s+g, 0);
       return sendEmbed(
@@ -546,61 +532,47 @@ client.on(Events.MessageCreate, async (msg) => {
     }
 
     // ── !lootboard ────────────────────────────────────────────────
-    if (cmd === "!lootboard") {
+    if (cmd === "lootboard") {
       let period = "all";
       if (args[0] && ["daily","weekly","monthly","all"].includes(args[0])) {
         period = args.shift();
       }
       const nameFilter = args.join(" ").toLowerCase() || null;
 
-      // filter by current event + period, drop clan
-      const all = filterByPeriod(
+      const allLoot = filterByPeriod(
         lootLog.filter(e => currentEvent === "default" ? true : e.event === currentEvent),
         period
       ).filter(e => !e.isClan);
+      const sums = {};
+      allLoot.forEach(({ killer, gp }) => {
+        const k = killer.toLowerCase();
+        if (nameFilter && k !== nameFilter) return;
+        sums[k] = (sums[k]||0) + gp;
+      });
+      const board = Object.entries(sums)
+        .sort((a,b) => b[1] - a[1])
+        .slice(0,10)
+        .map(([n,v],i) => ({ rank: i+1, name: n, gp: v }));
 
-      // top-10 GP
-      const makeLootBoard = arr => {
-        const sums = {};
-        arr.forEach(({ killer, gp }) => {
-          const k = killer.toLowerCase();
-          if (nameFilter && k !== nameFilter) return;
-          sums[k] = (sums[k]||0) + gp;
-        });
-        return Object.entries(sums)
-          .sort((a,b) => b[1] - a[1])
-          .slice(0,10)
-          .map(([n,v],i) => ({ rank: i+1, name: n, gp: v }));
-      };
-      const normalBoard = makeLootBoard(all);
-
-      // dynamic title
-      const title =
-        `💰 Lootboard (${period})` +
+      const title = `💰 Lootboard (${period})` +
         (currentEvent !== "default" ? ` — Event: ${currentEvent}` : "");
-
-      // build + send embed
-      const e1 = new EmbedBuilder()
+      const e2 = new EmbedBuilder()
         .setTitle(title)
         .setColor(0x004200)
         .setThumbnail(EMBED_ICON)
         .setTimestamp();
-      if (!normalBoard.length) {
-        e1.setDescription("No loot in that period.");
+      if (!board.length) {
+        e2.setDescription("No loot in that period.");
       } else {
-        normalBoard.forEach(r =>
-          e1.addFields({
-            name:  `${r.rank}. ${r.name}`,
-            value: `${r.gp.toLocaleString()} coins (${abbreviateGP(r.gp)})`,
-            inline: false
-          })
+        board.forEach(r =>
+          e2.addFields({ name: `${r.rank}. ${r.name}`, value: `${r.gp.toLocaleString()} coins (${abbreviateGP(r.gp)})`, inline: false })
         );
       }
-      return msg.channel.send({ embeds: [e1] });
+      return msg.channel.send({ embeds: [e2] });
     }
 
-    // ── Events & helper commands ─────────────────────────────────
-    if (lc === "!listevents") {
+    // ── !listevents ──────────────────────────────────────────────
+    if (cmd === "listevents") {
       return sendEmbed(
         msg.channel,
         "📅 Events",
@@ -609,16 +581,21 @@ client.on(Events.MessageCreate, async (msg) => {
           .join("\n")
       );
     }
-    if (lc.startsWith("!createevent ")) {
-      const name = text.slice(13).trim();
+
+    // ── !createevent <name> ──────────────────────────────────────
+    if (cmd === "createevent") {
+      const name = args.join(" ").trim();
       if (!name || events[name]) {
         return sendEmbed(msg.channel, "⚠️ Event Error", "Invalid or duplicate event name.");
       }
-      events[name] = { deathCounts:{}, lootTotals:{}, gpTotal:{}, kills:{} };
-      currentEvent = name; saveData();
+      events[name]  = { deathCounts:{}, lootTotals:{}, gpTotal:{}, kills:{} };
+      currentEvent = name;
+      saveData();
       return sendEmbed(msg.channel, "📅 Event Created", `**${name}** is now current.`);
     }
-    if (lc === "!finishevent") {
+
+    // ── !finishevent ────────────────────────────────────────────
+    if (cmd === "finishevent") {
       const file = `events/event_${currentEvent}_${new Date().toISOString().replace(/[:.]/g,"-")}.json`;
       fs.mkdirSync(path.dirname(path.join(__dirname,file)), { recursive:true });
       fs.writeFileSync(path.join(__dirname,file), JSON.stringify(events[currentEvent],null,2));
@@ -628,77 +605,59 @@ client.on(Events.MessageCreate, async (msg) => {
       saveData();
       return sendEmbed(msg.channel, "✅ Event Finished", `Saved to \`${file}\`, back to **default**.`);
     }
-	// ── !reset <player> ───────────────────────────────────────────
-	if (cmd === "!reset") {
-	  const target = args.join(" ").toLowerCase();
-	  if (!target) {
-		return sendEmbed(msg.channel, "⚠️ Usage", "`!reset <player>`");
-	  }
 
-	  // 1) remove from current event buckets
-	  const ev = getEventData();
-	  delete ev.kills[target];
-	  delete ev.lootTotals[target];
-	  delete ev.gpTotal[target];
-	  delete ev.deathCounts[target];
+    // ── !reset <player> ─────────────────────────────────────────
+    if (cmd === "reset") {
+      const target = args.join(" ").toLowerCase();
+      if (!target) {
+        return sendEmbed(msg.channel, "⚠️ Usage", "`!reset <player>`");
+      }
+      // remove from current event
+      const ev = getEventData();
+      delete ev.kills[target];
+      delete ev.lootTotals[target];
+      delete ev.gpTotal[target];
+      delete ev.deathCounts[target];
+      // purge logs
+      killLog.splice(0, killLog.length, ...killLog.filter(e =>
+        e.killer.toLowerCase() !== target && e.victim.toLowerCase() !== target
+      ));
+      lootLog.splice(0, lootLog.length, ...lootLog.filter(e =>
+        e.killer.toLowerCase() !== target
+      ));
+      saveData();
+      return sendEmbed(msg.channel, "🔄 Player Reset", `Stats for **${target}** wiped.`);
+    }
 
-	  // 2) purge from the in-memory logs
-	  const newKillLog = killLog.filter(e =>
-		e.killer.toLowerCase() !== target &&
-		e.victim.toLowerCase() !== target
-	  );
-	  killLog.length = 0;
-	  killLog.push(...newKillLog);
-
-	  const newLootLog = lootLog.filter(e =>
-		e.killer.toLowerCase() !== target
-	  );
-	  lootLog.length = 0;
-	  lootLog.push(...newLootLog);
-
-	  // 3) persist
-	  saveData();
-
-	  return sendEmbed(
-		msg.channel,
-		"🔄 Player Reset",
-		`All stats for **${target}** have been wiped for the current event.`
-	  );
-	}
-    if (cmd === "!resetall") {
-      // wipe logs & events
+    // ── !resetall ───────────────────────────────────────────────
+    if (cmd === "resetall") {
       killLog.length = 0;
       lootLog.length = 0;
-      for (const ev in events) delete events[ev];
+      Object.keys(events).forEach(ev => delete events[ev]);
       events.default = { deathCounts:{}, lootTotals:{}, gpTotal:{}, kills:{} };
       currentEvent   = "default";
       saveData();
-      return sendEmbed(msg.channel, "🔄 Reset Complete", "All hiscores and lootboard data have been wiped and reset to default.");
+      return sendEmbed(msg.channel, "🔄 Reset Complete", "All data wiped.");
     }
-	
-	 if (cmd === "!seenby") {
-	   // collect the last N entries (default 10), but only show names
-	   let count = Number(args[0]);
-	   if (isNaN(count) || count < 1) count = 10;
-	   const slice = seenByLog.slice(-count);
-	   if (!slice.length) {
-		 return sendEmbed(msg.channel, "👀 Seen By", "No viewers recorded yet.");
-	   }
 
-	   // dedupe player names
-	   const names = [...new Set(slice.map(e => e.player))];
+    // ── !seenby ────────────────────────────────────────────────
+    if (cmd === "seenby") {
+      let count = Number(args[0]);
+      if (isNaN(count) || count < 1) count = 10;
+      const slice = seenByLog.slice(-count);
+      if (!slice.length) {
+        return sendEmbed(msg.channel, "👀 Seen By", "No viewers recorded yet.");
+      }
+      const names = [...new Set(slice.map(e => e.player))];
+      return sendEmbed(
+        msg.channel,
+        `👀 Seen By (${names.length})`,
+        names.join(", ")
+      );
+    }
 
-	   // format as a simple comma-separated list
-	   return sendEmbed(
-		 msg.channel,
-		 `👀 Seen By (${names.length})`,
-		 names.join(", "),
-		 0x004200
-	   );
-	 }
-
-	
-    if (lc === "!help") {
+    // ── !help ─────────────────────────────────────────────────
+    if (cmd === "help") {
       const help = new EmbedBuilder()
         .setTitle("🛠 OE Loot Bot Help")
         .setColor(0x004200)
@@ -706,18 +665,18 @@ client.on(Events.MessageCreate, async (msg) => {
         .setTimestamp()
         .addFields([
           { name: "Stats", value: "`!hiscores [period]`\n`!lootboard [period]`\n`!totalgp`", inline:false },
-          { name: "Misc",  value:"`!help`", inline:false }
+          { name: "Events", value: "`!listevents`\n`!createevent <name>`\n`!finishevent`", inline:false },
+          { name: "Reset", value: "`!reset <player>`\n`!resetall`", inline:false },
+          { name: "Misc", value: "`!seenby [count]`\n`!help`", inline:false }
         ]);
       return msg.channel.send({ embeds: [help] });
     }
 
   } catch (err) {
-    console.error("[command] Error handling command:", err);
-    return sendEmbed(msg.channel, "⚠️ Error", "An error occurred while processing your command.");
+    console.error("[command] handler error:", err);
+    sendEmbed(msg.channel, "⚠️ Error", "Something went wrong.");
   }
 });
-
-
 
 client.once("ready", () => console.log(`[discord] ready: ${client.user.tag}`));
 client.on("error", err => console.error("[discord] Client error:", err));
