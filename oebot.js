@@ -23,6 +23,9 @@ const __dirname  = path.dirname(__filename);
 // ── Persistent data directory (Render volume) ───────────────
 const DATA_DIR = "/data";
 
+// track which raw chat lines we've already handed to processLoot
+const processedLoot = new Set();
+
 // ── Ensure correct origin remote ─────────────────────────────
 ;(function fixOrigin() {
   try {
