@@ -23,8 +23,6 @@ const __dirname  = path.dirname(__filename);
 // ── Persistent data directory (Render volume) ───────────────
 const DATA_DIR = "/data";
 
-// track which raw chat lines we've already handed to processLoot
-const processedLoot = new Set();
 
 // ── Ensure correct origin remote ─────────────────────────────
 ;(function fixOrigin() {
@@ -355,7 +353,9 @@ app.post("/logKill", async (req, res) => {
   );
 });
 
-/* ─────────────────────────── RuneLite “dink” webhook ────────────────────────── */
+// track which raw chat lines we've already handed to processLoot
+const processedLoot = new Set();
+
 app.post(
   "/dink",
   upload.fields([
@@ -363,53 +363,63 @@ app.post(
     { name: "file",         maxCount: 1 }
   ]),
   async (req, res) => {
-    // 1. grab & parse raw JSON
+    // 1) grab & parse raw JSON
     let raw = req.body?.payload_json;
     if (Array.isArray(raw)) raw = raw[0];
     if (!raw && Object.keys(req.body || {}).length) raw = JSON.stringify(req.body);
     if (!raw) return res.status(400).send("no payload_json");
 
     let data;
-    try { data = JSON.parse(raw); }
-    catch { return res.status(400).send("bad JSON"); }
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      return res.status(400).send("bad JSON");
+    }
 
-    // 2. only clan chat text
+    // 2) only clan-chat text messages
     if (
-      data.type       !== "CHAT" ||
-      !["CLAN_CHAT","CLAN_MESSAGE"].includes(data.extra?.type) ||
+      data.type !== "CHAT" ||
+      !["CLAN_CHAT", "CLAN_MESSAGE"].includes(data.extra?.type) ||
       typeof data.extra.message !== "string"
     ) {
       return res.status(204).end();
     }
-    if ((data.clanName||data.extra.source||"").toLowerCase() !== "obby elite") {
+
+    // 3) only from our clan
+    const clanName = (data.clanName || data.extra.source || "").toLowerCase();
+    if (clanName !== "obby elite") {
       return res.status(204).end();
     }
 
-    // 3. match loot line
+    // 4) match loot regex
     const msgText = data.extra.message.trim();
     const m = msgText.match(LOOT_RE);
-    if (!m) return res.status(204).end();
+    if (!m) {
+      return res.status(204).end();
+    }
 
-    // 4. DE-DUPE: if we've already processed this exact raw line, bail
+    // 5) dedupe at the raw‐message level
     if (processedLoot.has(msgText)) {
+      // we’ve already handed this line off
       return res.status(204).end();
     }
     processedLoot.add(msgText);
 
-    // 5. record who saw it
+    // 6) record who saw it
     const rsn = data.playerName || "unknown";
     seenByLog.push({ player: rsn, message: msgText, timestamp: Date.now() });
-    console.log(`[dink] seen by=${rsn} | ⚔️  saw loot message: ${msgText}`);
+    console.log(`[dink] saw loot message: ${msgText} (by ${rsn})`);
 
-    // 6. process it once
-    console.log(`[dink] ⚔️  processing loot message: ${msgText}`);
+    // 7) process it
+    console.log(`[dink] processing loot message: ${msgText}`);
     await processLoot(
-      m[1],                               // killer
-      m[2],                               // victim
-      Number(m[3].replace(/,/g, "")),     // gp
-      msgText,                            // dedupKey
+      m[1],                            // killer
+      m[2],                            // victim
+      Number(m[3].replace(/,/g, "")),  // gp
+      msgText,                         // dedupKey
       res
     );
+    // processLoot will send a 200 (or error) for us, so we're done
   }
 );
 
