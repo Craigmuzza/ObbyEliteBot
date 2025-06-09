@@ -271,7 +271,15 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
       .setTimestamp();
 
     const ch = await client.channels.fetch(DISCORD_CHANNEL_ID);
-    if (ch?.isTextBased()) await ch.send({ embeds: [embed] });
+    if (!ch) {
+      console.error("[processLoot] ❌ channel not found");
+    } else {
+      try {
+        await ch.send({ embeds: [embed] });
+      } catch (sendErr) {
+        console.error("[processLoot] ❌ failed to send embed:", sendErr);
+      }
+    }
 
     // 4) Persist & finish
     saveData();
