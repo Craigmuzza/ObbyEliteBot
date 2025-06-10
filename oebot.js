@@ -1,88 +1,90 @@
-// oebot.js
-import express from "express";
-import { spawn, spawnSync } from "child_process";
-import multer from "multer";
-import { fileURLToPath } from "url";
-import path from "path";
+// oebot.js  (header & helpers)
+
+// ── std-lib & deps ───────────────────────────────────────────
+import express                 from "express";
+import { spawn, spawnSync }    from "child_process";
+import multer                  from "multer";
+import { fileURLToPath }       from "url";
+import path                    from "path";
 import {
-  Client,
-  GatewayIntentBits,
-  EmbedBuilder,
-  Events,
-  Collection
-} from "discord.js";
-import fs from "fs";
-import dotenv from "dotenv";
+  Client, GatewayIntentBits, EmbedBuilder, Events, Collection
+}                              from "discord.js";
+import fs                      from "fs";
+import dotenv                  from "dotenv";
 dotenv.config();
 
-/* ─────────────────── paths & git helper ─────────────────── */
+// ── paths & basic constants ─────────────────────────────────
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 const DATA_DIR   = "/data";
 
-(function fixOrigin () {
+// ── Git: set origin *only if it already exists* ─────────────
+function remoteExists() {
   try {
-    spawnSync("git", [
-      "remote","set-url","origin",
-      "https://github.com/Craigmuzza/ObbyEliteBot.git"
-    ],{ cwd:__dirname, stdio:"inherit" });
-  } catch {}
-})();
-(function setGitIdentity () {
-  try {
-    spawnSync("git", ["config","user.email","bot@localhost"],{ cwd:__dirname });
-    spawnSync("git", ["config","user.name","OE Loot Bot"],   { cwd:__dirname });
-  } catch {}
-})();
+    const out = spawnSync("git", ["remote"], { cwd: __dirname })
+                 .stdout.toString();
+    return out.split(/\s+/).includes("origin");
+  } catch { return false; }
+}
+if (remoteExists()) {
+  spawnSync("git", ["remote", "set-url", "origin",
+    "https://github.com/Craigmuzza/ObbyEliteBot.git"
+  ], { cwd: __dirname, stdio: "ignore" });
+}
 
-/* ─────────────────── env ─────────────────── */
-const DISCORD_BOT_TOKEN  = process.env.DISCORD_BOT_TOKEN;
-const DISCORD_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
-const GITHUB_PAT         = process.env.GITHUB_PAT;
-const REPO   = "craigmuzza/ObbyEliteBot";
-const BRANCH = "main";
+// Git identity (harmless if already set)
+spawnSync("git", ["config", "user.email", "bot@localhost" ], { cwd: __dirname });
+spawnSync("git", ["config", "user.name",  "OE Loot Bot"    ], { cwd: __dirname });
+
+// ── Env vars ────────────────────────────────────────────────
+const {
+  DISCORD_BOT_TOKEN,
+  DISCORD_CHANNEL_ID,
+  GITHUB_PAT
+} = process.env;
+
+const REPO       = "craigmuzza/ObbyEliteBot";
+const BRANCH     = "main";
 const COMMIT_MSG = "auto: sync data";
 
-/* ─────────────────── constants ─────────────────── */
-const EMBED_ICON = "https://i.imgur.com/qhpxVOw.gif";
-const DEDUP_MS   = 10_000;
-const BACKUP_INTERVAL = 5 * 60 * 1000;   // 5 min between automatic saves
-const GOLD_THRESHOLD = 10_000_000;
-const COLOR_NORMAL  = 0x820000;
-const COLOR_GOLD    = 0xFFD700;
-const LOOT_RE = /^(.+?)\s+has\s+defeated\s+(.+?)\s+and\s+received\s+\( *([\d,]+) *coins\).*$/i;
+// ── Bot constants ───────────────────────────────────────────
+const EMBED_ICON      = "https://i.imgur.com/qhpxVOw.gif";
+const DEDUP_MS        = 10_000;
+const BACKUP_INTERVAL = 5 * 60 * 1_000;     // 5 min
+const GOLD_THRESHOLD  = 10_000_000;
+const COLOR_NORMAL    = 0x820000;
+const COLOR_GOLD      = 0xFFD700;
+const LOOT_RE =
+  /^(.+?)\s+has\s+defeated\s+(.+?)\s+and\s+received\s+\(\s*([\d,]+)\s*coins\).*$/i;
 
-/* ─────────────────── runtime state ─────────────────── */
+// ── Runtime state ───────────────────────────────────────────
 let currentEvent = "default";
-const registered = new Set();            // (still used in processKill)
-const seen       = new Map();            // anti-spam inside processLoot
-const processedLoot = new Set();         // de-dupe /dink raw lines
-const events = { default:{ deathCounts:{}, lootTotals:{}, gpTotal:{}, kills:{} } };
-const killLog = [];
-const lootLog = [];
-const seenByLog = [];
+const processedLoot = new Set();        // de-dupe /dink raw lines
+const seen          = new Map();        // short-term spam guard
+const events   = { default:{ deathCounts:{}, lootTotals:{}, gpTotal:{}, kills:{} }};
+const killLog  = [];
+const lootLog  = [];
+const seenByLog= [];
 const commandCooldowns = new Collection();
 
-/* ─────────────────── helpers ─────────────────── */
-const ci  = s => (s||"").toLowerCase().trim();
+// ── Small helpers ───────────────────────────────────────────
+const ci  = s => (s ?? "").toLowerCase().trim();
 const now = () => Date.now();
-function abbreviateGP (n){
-  if (n>=1e9) return (n/1e9).toFixed(2).replace(/\.?0+$/,"")+"B";
-  if (n>=1e6) return (n/1e6).toFixed(2).replace(/\.?0+$/,"")+"M";
-  if (n>=1e3) return (n/1e3).toFixed(2).replace(/\.?0+$/,"")+"K";
-  return String(n);
-}
-function sendEmbed (ch,title,desc,color=0x4200){
-  return ch.send({ embeds:[ new EmbedBuilder()
+const abbreviateGP = n =>
+  n >= 1e9 ? (n/1e9).toFixed(2).replace(/\.?0+$/,"")+"B" :
+  n >= 1e6 ? (n/1e6).toFixed(2).replace(/\.?0+$/,"")+"M" :
+  n >= 1e3 ? (n/1e3).toFixed(2).replace(/\.?0+$/,"")+"K" : String(n);
+
+const sendEmbed = (ch,title,desc,color=0x4200) =>
+  ch.send({ embeds:[ new EmbedBuilder()
       .setTitle(title).setDescription(desc).setColor(color)
       .setThumbnail(EMBED_ICON).setTimestamp() ]});
-}
 
-/* ─────────────────── git save helper ─────────────────── */
+// ── Git commit helper (debounced) ───────────────────────────
 let gitTimer = null;
 function queueGitCommit() {
-  if (!GITHUB_PAT) return;
-  if (gitTimer) return;
+  if (!GITHUB_PAT) return;          // nothing to do
+  if (gitTimer) return;             // already queued
 
   gitTimer = setTimeout(() => {
     gitTimer = null;
@@ -90,32 +92,40 @@ function queueGitCommit() {
 
     spawnSync("git", ["add", "."], opts);
     spawnSync("git", ["commit", "-m", COMMIT_MSG], opts);
-
-    // new line – make our local HEAD equal to origin/main first
     spawnSync("git", ["pull", "--rebase", "--ff-only"], opts);
 
     const url = `https://x-access-token:${GITHUB_PAT}@github.com/${REPO}.git`;
-    const p   = spawn("git", ["push", url, BRANCH], opts);
-    p.unref();                       // don’t block the event-loop
+    spawn("git", ["push", url, BRANCH], opts).unref();
   }, 5 * 60_000);
 }
-/* ── data persistence ───────────────────────────── */
+
+// ── Persistence helpers ─────────────────────────────────────
 function saveData() {
   try {
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-
     fs.writeFileSync(
       path.join(DATA_DIR, "state.json"),
-      JSON.stringify(
-        { currentEvent, events, killLog, lootLog, seenByLog },
-        null,
-        2
-      )
+      JSON.stringify({ currentEvent, events, killLog, lootLog, seenByLog }, null, 2)
     );
-
-    queueGitCommit();          // schedule non-blocking git add/commit/push
+    queueGitCommit();
   } catch (err) {
-    console.error("[save] Failed to save data:", err);
+    console.error("[save] Failed:", err);
+  }
+}
+
+function loadData() {
+  try {
+    const p = path.join(DATA_DIR, "state.json");
+    if (!fs.existsSync(p)) return;
+    const d = JSON.parse(fs.readFileSync(p));
+    currentEvent = d.currentEvent ?? "default";
+    Object.assign(events, d.events ?? {});
+    killLog .push(...(d.killLog  ?? []));
+    lootLog .push(...(d.lootLog  ?? []));
+    seenByLog.push(...(d.seenByLog?? []));
+    console.log("[init] state loaded");
+  } catch (e) {
+    console.error("[init] load error", e);
   }
 }
 
