@@ -170,9 +170,6 @@ async function processLoot(killer,victim,gp,dedupKey,res){
   }
 }
 
-/* track raw-line de-dupe */
-const processedLoot=new Set();
-
 const app = express();
 const upload = multer();
 app.use(express.json());
