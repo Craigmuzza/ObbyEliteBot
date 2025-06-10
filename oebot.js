@@ -99,30 +99,24 @@ function queueGitCommit() {
     p.unref();                       // don’t block the event-loop
   }, 5 * 60_000);
 }
+/* ── data persistence ───────────────────────────── */
+function saveData() {
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
-/* data persistence */
-function saveData(){
-  if(!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR,{recursive:true});
-  fs.writeFileSync(path.join(DATA_DIR,"state.json"),
-    JSON.stringify({ currentEvent,events,killLog,lootLog,seenByLog },null,2));
-    queueGitCommit();  // schedule a non-blocking commit/push
-   } catch (err) {
-     console.error("[save] Failed to save data:", err);
-   }
- }
- 
-function loadData(){
-  try{
-    const p=path.join(DATA_DIR,"state.json");
-    if(fs.existsSync(p)){
-      const d=JSON.parse(fs.readFileSync(p));
-      currentEvent=d.currentEvent||"default";
-      Object.assign(events,d.events||{});
-      killLog.push(...(d.killLog||[]));
-      lootLog.push(...(d.lootLog||[]));
-      seenByLog.push(...(d.seenByLog||[]));
-    }
-  }catch(e){ console.error("[init] load error",e);}
+    fs.writeFileSync(
+      path.join(DATA_DIR, "state.json"),
+      JSON.stringify(
+        { currentEvent, events, killLog, lootLog, seenByLog },
+        null,
+        2
+      )
+    );
+
+    queueGitCommit();          // schedule non-blocking git add/commit/push
+  } catch (err) {
+    console.error("[save] Failed to save data:", err);
+  }
 }
 
 /* ─────────────────── discord client ─────────────────── */
@@ -133,6 +127,7 @@ const client = new Client({
     GatewayIntentBits.MessageContent
   ]
 });
+
 let discordReady=false;
 client.once("ready",()=>{discordReady=true;console.log(`[discord] ready: ${client.user.tag}`);});
 client.on("error",e=>console.error("[discord] error:",e));
