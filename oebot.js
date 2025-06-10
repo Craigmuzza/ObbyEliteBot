@@ -99,33 +99,40 @@ function queueGitCommit() {
   }, 5 * 60_000);
 }
 
-// ── Persistence helpers ─────────────────────────────────────
+/* ── data persistence ───────────────────────────── */
 function saveData() {
   try {
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
     fs.writeFileSync(
       path.join(DATA_DIR, "state.json"),
-      JSON.stringify({ currentEvent, events, killLog, lootLog, seenByLog }, null, 2)
+      JSON.stringify(
+        { currentEvent, events, killLog, lootLog, seenByLog },
+        null,
+        2
+      )
     );
-    queueGitCommit();
+
+    queueGitCommit();          // schedule non-blocking git add/commit/push
   } catch (err) {
-    console.error("[save] Failed:", err);
+    console.error("[save] Failed to save data:", err);
   }
 }
 
 function loadData() {
   try {
     const p = path.join(DATA_DIR, "state.json");
-    if (!fs.existsSync(p)) return;
+    if (!fs.existsSync(p)) return;                 // first run — nothing saved
     const d = JSON.parse(fs.readFileSync(p));
+
     currentEvent = d.currentEvent ?? "default";
-    Object.assign(events, d.events ?? {});
+    Object.assign(events, d.events   ?? {});
     killLog .push(...(d.killLog  ?? []));
     lootLog .push(...(d.lootLog  ?? []));
     seenByLog.push(...(d.seenByLog?? []));
     console.log("[init] state loaded");
   } catch (e) {
-    console.error("[init] load error", e);
+    console.error("[init] load error:", e);
   }
 }
 
