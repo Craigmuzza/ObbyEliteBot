@@ -1,6 +1,6 @@
 // oebot.js
 import express from "express";
-import { spawnSync } from "child_process";
+import { spawn, spawnSync } from "child_process";   // keep spawnSync for the initial fixOrigin()
 import multer from "multer";
 import { fileURLToPath } from "url";
 import path from "path";
@@ -79,23 +79,37 @@ function sendEmbed (ch,title,desc,color=0x4200){
 }
 
 /* ─────────────────── git save helper ─────────────────── */
-function commitToGitHub(){
-  if(!GITHUB_PAT) return;
-  try{
-    spawnSync("git",["add","."],{cwd:__dirname,stdio:"inherit"});
-    spawnSync("git",["commit","-m",COMMIT_MSG],{cwd:__dirname,stdio:"inherit"});
-    spawnSync("git",["push",
-      `https://x-access-token:${GITHUB_PAT}@github.com/${REPO}.git`,
-      BRANCH],{cwd:__dirname,stdio:"inherit"});
-  }catch{}
+let gitTimer = null;                // only one pending push at a time
+function queueGitCommit() {
+  if (!GITHUB_PAT) return;          // nothing to do if no token
+
+  if (gitTimer) return;             // already scheduled → do nothing
+
+  gitTimer = setTimeout(() => {
+    gitTimer = null;                // clear for next round
+
+    const opts = { cwd: __dirname, stdio: "ignore", detached: true };
+
+    spawn("git", ["add", "."], opts);
+    spawn("git", ["commit", "-m", COMMIT_MSG], opts);
+
+    const url = `https://x-access-token:${GITHUB_PAT}@github.com/${REPO}.git`;
+    const p   = spawn("git", ["push", url, BRANCH], opts);
+    p.unref();                      // let it run in background; don't block Node
+  }, 5 * 60_000);                   // one push max every 5 minutes
 }
+
 /* data persistence */
 function saveData(){
   if(!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR,{recursive:true});
   fs.writeFileSync(path.join(DATA_DIR,"state.json"),
     JSON.stringify({ currentEvent,events,killLog,lootLog,seenByLog },null,2));
-  commitToGitHub();
-}
+    queueGitCommit();  // schedule a non-blocking commit/push
+   } catch (err) {
+     console.error("[save] Failed to save data:", err);
+   }
+ }
+ 
 function loadData(){
   try{
     const p=path.join(DATA_DIR,"state.json");
