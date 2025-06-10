@@ -79,26 +79,26 @@ function sendEmbed (ch,title,desc,color=0x4200){
 }
 
 /* ─────────────────── git save helper ─────────────────── */
-let gitTimer = null;               // hold pending debounce timer
-
+let gitTimer = null;
 function queueGitCommit() {
-  if (!GITHUB_PAT) return;         // nothing to do without a token
-  if (gitTimer) return;            // already scheduled
+  if (!GITHUB_PAT) return;
+  if (gitTimer) return;
 
-  gitTimer = setTimeout(() => {    // ---------- opening brace of timer callback
-    gitTimer = null;               // let future commits schedule again
-
+  gitTimer = setTimeout(() => {
+    gitTimer = null;
     const opts = { cwd: __dirname, stdio: "ignore", detached: true };
 
-    // NOTE: every spawn(..) is *fire-and-forget*; they don’t block the event-loop
-    spawn("git", ["add", "."], opts);
-    spawn("git", ["commit", "-m", COMMIT_MSG], opts);
+    spawnSync("git", ["add", "."], opts);
+    spawnSync("git", ["commit", "-m", COMMIT_MSG], opts);
+
+    // new line – make our local HEAD equal to origin/main first
+    spawnSync("git", ["pull", "--rebase", "--ff-only"], opts);
 
     const url = `https://x-access-token:${GITHUB_PAT}@github.com/${REPO}.git`;
     const p   = spawn("git", ["push", url, BRANCH], opts);
-    p.unref();                     // allow the push to continue after Node exits
-  }, 5 * 60_000);                  // ---------- closing brace of timer callback
-}   
+    p.unref();                       // don’t block the event-loop
+  }, 5 * 60_000);
+}
 
 /* data persistence */
 function saveData(){
