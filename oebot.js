@@ -46,6 +46,7 @@ const COMMIT_MSG = "auto: sync data";
 /* ─────────────────── constants ─────────────────── */
 const EMBED_ICON = "https://i.imgur.com/qhpxVOw.gif";
 const DEDUP_MS   = 10_000;
+const BACKUP_INTERVAL = 5 * 60 * 1000;   // 5 min between automatic saves
 const GOLD_THRESHOLD = 10_000_000;
 const COLOR_NORMAL  = 0x820000;
 const COLOR_GOLD    = 0xFFD700;
