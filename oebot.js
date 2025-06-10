@@ -1,6 +1,6 @@
 // oebot.js
 import express from "express";
-import { spawn, spawnSync } from "child_process";   // keep spawnSync for the initial fixOrigin()
+import { spawn, spawnSync } from "child_process";
 import multer from "multer";
 import { fileURLToPath } from "url";
 import path from "path";
@@ -79,25 +79,26 @@ function sendEmbed (ch,title,desc,color=0x4200){
 }
 
 /* ─────────────────── git save helper ─────────────────── */
-let gitTimer = null;                // only one pending push at a time
+let gitTimer = null;               // hold pending debounce timer
+
 function queueGitCommit() {
-  if (!GITHUB_PAT) return;          // nothing to do if no token
+  if (!GITHUB_PAT) return;         // nothing to do without a token
+  if (gitTimer) return;            // already scheduled
 
-  if (gitTimer) return;             // already scheduled → do nothing
-
-  gitTimer = setTimeout(() => {
-    gitTimer = null;                // clear for next round
+  gitTimer = setTimeout(() => {    // ---------- opening brace of timer callback
+    gitTimer = null;               // let future commits schedule again
 
     const opts = { cwd: __dirname, stdio: "ignore", detached: true };
 
+    // NOTE: every spawn(..) is *fire-and-forget*; they don’t block the event-loop
     spawn("git", ["add", "."], opts);
     spawn("git", ["commit", "-m", COMMIT_MSG], opts);
 
     const url = `https://x-access-token:${GITHUB_PAT}@github.com/${REPO}.git`;
     const p   = spawn("git", ["push", url, BRANCH], opts);
-    p.unref();                      // let it run in background; don't block Node
-  }, 5 * 60_000);                   // one push max every 5 minutes
-}
+    p.unref();                     // allow the push to continue after Node exits
+  }, 5 * 60_000);                  // ---------- closing brace of timer callback
+}   
 
 /* data persistence */
 function saveData(){
