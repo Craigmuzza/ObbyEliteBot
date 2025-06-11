@@ -74,6 +74,15 @@ const abbreviateGP = n =>
   n >= 1e9 ? (n/1e9).toFixed(2).replace(/\.?0+$/,"")+"B" :
   n >= 1e6 ? (n/1e6).toFixed(2).replace(/\.?0+$/,"")+"M" :
   n >= 1e3 ? (n/1e3).toFixed(2).replace(/\.?0+$/,"")+"K" : String(n);
+  
+  // >>> restore simple 3-second command cooldown
+const COMMAND_COOLDOWN = 3_000;          // ms
+function checkCooldown(userId) {
+  const next = commandCooldowns.get(userId) || 0;
+  if (now() < next) return false;         // still cooling down
+  commandCooldowns.set(userId, now() + COMMAND_COOLDOWN);
+  return true;
+}
 
 const sendEmbed = (ch,title,desc,color=0x4200) =>
   ch.send({ embeds:[ new EmbedBuilder()
