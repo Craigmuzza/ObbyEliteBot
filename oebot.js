@@ -1,272 +1,409 @@
-// oebot.js  (header & helpers)
+// oebot.js – full, working version  ░░ 2025-06-11
+/* eslint-disable no-multi-spaces */
 
-// ── std-lib & deps ───────────────────────────────────────────
-import express                 from "express";
-import { spawn, spawnSync }    from "child_process";
-import multer                  from "multer";
-import { fileURLToPath }       from "url";
-import path                    from "path";
+// ─── std-lib & deps ──────────────────────────────────────────
+import express                    from "express";
+import { spawn, spawnSync }       from "child_process";
+import multer                     from "multer";
+import fs                         from "fs";
+import path                       from "path";
+import { fileURLToPath }          from "url";
+import dotenv                     from "dotenv";
 import {
-  Client, GatewayIntentBits, EmbedBuilder, Events, Collection
-}                              from "discord.js";
-import fs                      from "fs";
-import dotenv                  from "dotenv";
+  Client,
+  GatewayIntentBits,
+  EmbedBuilder,
+  Events,
+  Collection
+}                                 from "discord.js";
 dotenv.config();
 
-// ── paths & basic constants ─────────────────────────────────
+// ─── paths & dirs ────────────────────────────────────────────
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 const DATA_DIR   = "/data";
 
-// ── Git: set origin *only if it already exists* ─────────────
-function remoteExists() {
+// ─── Git remote & identity (safe-guard) ─────────────────────
+function gitRemoteExists() {
   try {
     const out = spawnSync("git", ["remote"], { cwd: __dirname })
-                 .stdout.toString();
+                  .stdout.toString();
     return out.split(/\s+/).includes("origin");
   } catch { return false; }
 }
-if (remoteExists()) {
-  spawnSync("git", ["remote", "set-url", "origin",
-    "https://github.com/Craigmuzza/ObbyEliteBot.git"
-  ], { cwd: __dirname, stdio: "ignore" });
+if (gitRemoteExists()) {
+  spawnSync("git",
+    ["remote", "set-url", "origin",
+     "https://github.com/Craigmuzza/ObbyEliteBot.git"],
+    { cwd: __dirname, stdio: "ignore" });
 }
-
-// Git identity (harmless if already set)
 spawnSync("git", ["config", "user.email", "bot@localhost" ], { cwd: __dirname });
 spawnSync("git", ["config", "user.name",  "OE Loot Bot"    ], { cwd: __dirname });
 
-// ── Env vars ────────────────────────────────────────────────
+// ─── env ─────────────────────────────────────────────────────
 const {
   DISCORD_BOT_TOKEN,
   DISCORD_CHANNEL_ID,
   GITHUB_PAT
 } = process.env;
-
-const REPO       = "craigmuzza/ObbyEliteBot";
-const BRANCH     = "main";
+const REPO   = "craigmuzza/ObbyEliteBot";
+const BRANCH = "main";
 const COMMIT_MSG = "auto: sync data";
 
-// ── Bot constants ───────────────────────────────────────────
+// ─── constants ───────────────────────────────────────────────
 const EMBED_ICON      = "https://i.imgur.com/qhpxVOw.gif";
 const DEDUP_MS        = 10_000;
-const BACKUP_INTERVAL = 5 * 60 * 1_000;     // 5 min
+const COMMAND_COOLDOWN= 3_000;
+const BACKUP_INTERVAL = 5 * 60_000;       // 5 min
 const GOLD_THRESHOLD  = 10_000_000;
 const COLOR_NORMAL    = 0x820000;
 const COLOR_GOLD      = 0xFFD700;
 const LOOT_RE =
   /^(.+?)\s+has\s+defeated\s+(.+?)\s+and\s+received\s+\(\s*([\d,]+)\s*coins\).*$/i;
 
-// ── Runtime state ───────────────────────────────────────────
+// ─── runtime state ───────────────────────────────────────────
 let currentEvent = "default";
-const processedLoot = new Set();        // de-dupe /dink raw lines
-const seen          = new Map();        // short-term spam guard
+const processedLoot = new Set();     // de-dupe /dink raw lines
+const seen          = new Map();     // short anti-spam window
 const events   = { default:{ deathCounts:{}, lootTotals:{}, gpTotal:{}, kills:{} }};
 const killLog  = [];
 const lootLog  = [];
 const seenByLog= [];
 const commandCooldowns = new Collection();
 
-// ── Small helpers ───────────────────────────────────────────
+// ─── tiny helpers ────────────────────────────────────────────
 const ci  = s => (s ?? "").toLowerCase().trim();
 const now = () => Date.now();
 const abbreviateGP = n =>
-  n >= 1e9 ? (n/1e9).toFixed(2).replace(/\.?0+$/,"")+"B" :
-  n >= 1e6 ? (n/1e6).toFixed(2).replace(/\.?0+$/,"")+"M" :
-  n >= 1e3 ? (n/1e3).toFixed(2).replace(/\.?0+$/,"")+"K" : String(n);
-  
-  // >>> restore simple 3-second command cooldown
-const COMMAND_COOLDOWN = 3_000;          // ms
-function checkCooldown(userId) {
-  const next = commandCooldowns.get(userId) || 0;
-  if (now() < next) return false;         // still cooling down
-  commandCooldowns.set(userId, now() + COMMAND_COOLDOWN);
+  n>=1e9 ? (n/1e9).toFixed(2).replace(/\.?0+$/,"")+"B" :
+  n>=1e6 ? (n/1e6).toFixed(2).replace(/\.?0+$/,"")+"M" :
+  n>=1e3 ? (n/1e3).toFixed(2).replace(/\.?0+$/,"")+"K" : String(n);
+
+function checkCooldown(id) {
+  const nxt = commandCooldowns.get(id) || 0;
+  if (now() < nxt) return false;
+  commandCooldowns.set(id, now() + COMMAND_COOLDOWN);
   return true;
 }
 
-const sendEmbed = (ch,title,desc,color=0x4200) =>
-  ch.send({ embeds:[ new EmbedBuilder()
+const sendEmbed = (ch, title, desc, color = 0x004200) =>
+  ch.send({ embeds: [ new EmbedBuilder()
       .setTitle(title).setDescription(desc).setColor(color)
       .setThumbnail(EMBED_ICON).setTimestamp() ]});
 
-// ── Git commit helper (debounced) ───────────────────────────
+// ─── git helper (debounced push) ─────────────────────────────
 let gitTimer = null;
 function queueGitCommit() {
-  if (!GITHUB_PAT) return;          // nothing to do
-  if (gitTimer) return;             // already queued
+  if (!GITHUB_PAT) return;
+  if (gitTimer) return;
 
   gitTimer = setTimeout(() => {
     gitTimer = null;
     const opts = { cwd: __dirname, stdio: "ignore", detached: true };
-
     spawnSync("git", ["add", "."], opts);
     spawnSync("git", ["commit", "-m", COMMIT_MSG], opts);
     spawnSync("git", ["pull", "--rebase", "--ff-only"], opts);
-
-    const url = `https://x-access-token:${GITHUB_PAT}@github.com/${REPO}.git`;
-    spawn("git", ["push", url, BRANCH], opts).unref();
+    spawn("git", ["push",
+      `https://x-access-token:${GITHUB_PAT}@github.com/${REPO}.git`,
+      BRANCH], opts).unref();
   }, 5 * 60_000);
 }
 
-/* ── data persistence ───────────────────────────── */
+// ─── persistence ────────────────────────────────────────────
 function saveData() {
   try {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive:true });
     fs.writeFileSync(
       path.join(DATA_DIR, "state.json"),
-      JSON.stringify(
-        { currentEvent, events, killLog, lootLog, seenByLog },
-        null,
-        2
-      )
+      JSON.stringify({ currentEvent, events, killLog, lootLog, seenByLog }, null, 2)
     );
-
-    queueGitCommit();          // schedule non-blocking git add/commit/push
-  } catch (err) {
-    console.error("[save] Failed to save data:", err);
-  }
+    queueGitCommit();
+  } catch (e) { console.error("[save] failed:", e); }
 }
-
 function loadData() {
   try {
     const p = path.join(DATA_DIR, "state.json");
-    if (!fs.existsSync(p)) return;                 // first run — nothing saved
+    if (!fs.existsSync(p)) return;
     const d = JSON.parse(fs.readFileSync(p));
-
     currentEvent = d.currentEvent ?? "default";
-    Object.assign(events, d.events   ?? {});
+    Object.assign(events,   d.events   ?? {});
     killLog .push(...(d.killLog  ?? []));
     lootLog .push(...(d.lootLog  ?? []));
     seenByLog.push(...(d.seenByLog?? []));
     console.log("[init] state loaded");
-  } catch (e) {
-    console.error("[init] load error:", e);
-  }
+  } catch (e) { console.error("[init] load error:", e); }
 }
 
-/* ─────────────────── discord client ─────────────────── */
+// ─── discord client ─────────────────────────────────────────
 const client = new Client({
-  intents:[
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ]
+  intents:[ GatewayIntentBits.Guilds,
+            GatewayIntentBits.GuildMessages,
+            GatewayIntentBits.MessageContent ]
 });
+let discordReady = false;
+client.once("ready", () => {
+  discordReady = true;
+  console.log(`[discord] ready: ${client.user.tag}`);
+});
+client.on("error", e => console.error("[discord] error:", e));
 
-let discordReady=false;
-client.once("ready",()=>{discordReady=true;console.log(`[discord] ready: ${client.user.tag}`);});
-client.on("error",e=>console.error("[discord] error:",e));
-client.on("disconnect",()=>console.log("[discord] disconnect"));
-
-/* ─────────────────── core logic ─────────────────── */
-function getEventData(){
-  if(!events[currentEvent])
-    events[currentEvent]={ deathCounts:{},lootTotals:{},gpTotal:{},kills:{} };
+// ─── helpers for event bucket ────────────────────────────────
+function getEventData() {
+  if (!events[currentEvent])
+    events[currentEvent] = { deathCounts:{}, lootTotals:{}, gpTotal:{}, kills:{} };
   return events[currentEvent];
 }
 
-async function processLoot(killer,victim,gp,dedupKey,res){
-  try{
-    if(!killer||!victim||isNaN(gp)) return res?.status(400).send("bad data");
-    if(seen.has(dedupKey)&&now()-seen.get(dedupKey)<DEDUP_MS)
+// ─── main loot processor ─────────────────────────────────────
+async function processLoot(killer, victim, gp, dedupKey, res) {
+  try {
+    if (!killer || !victim || isNaN(gp))
+      return res?.status(400).send("bad data");
+    if (seen.has(dedupKey) && now() - seen.get(dedupKey) < DEDUP_MS)
       return res?.status(200).send("dup");
-    seen.set(dedupKey,now());
+    seen.set(dedupKey, now());
 
-    const ev=getEventData();
-    ev.lootTotals[ci(killer)] = (ev.lootTotals[ci(killer)]||0)+gp;
-    ev.gpTotal  [ci(killer)] = (ev.gpTotal  [ci(killer)]||0)+gp;
-    ev.kills    [ci(killer)] = (ev.kills    [ci(killer)]||0)+1;
-    ev.deathCounts[ci(victim)] = (ev.deathCounts[ci(victim)]||0)+1;
+    const ev = getEventData();
+    ev.lootTotals[ci(killer)] = (ev.lootTotals[ci(killer)] ?? 0) + gp;
+    ev.gpTotal  [ci(killer)] = (ev.gpTotal  [ci(killer)] ?? 0) + gp;
+    ev.kills    [ci(killer)] = (ev.kills    [ci(killer)] ?? 0) + 1;
+    ev.deathCounts[ci(victim)] = (ev.deathCounts[ci(victim)] ?? 0) + 1;
 
-    lootLog.push({ killer,gp,timestamp:now(),event:currentEvent });
+    lootLog.push({ killer, gp, timestamp: now(), event: currentEvent });
 
-    /* build embed */
-    const total = currentEvent==="default"? ev.gpTotal[ci(killer)] : ev.lootTotals[ci(killer)];
+    const total = currentEvent === "default"
+        ? ev.gpTotal[ci(killer)]
+        : ev.lootTotals[ci(killer)];
+
     const embed = new EmbedBuilder()
       .setTitle("💰 Loot Detected")
       .setDescription(`**${killer}** defeated **${victim}** and received **${gp.toLocaleString()} coins**`)
-      .addFields({ name: currentEvent==="default"?"Total GP Earned":"Event GP Gained",
-                   value:`${total.toLocaleString()} coins (${abbreviateGP(total)} GP)` })
-      .setColor(gp>=GOLD_THRESHOLD?COLOR_GOLD:COLOR_NORMAL)
+      .addFields({
+        name: currentEvent === "default" ? "Total GP Earned" : "Event GP Gained",
+        value:`${total.toLocaleString()} coins (${abbreviateGP(total)} GP)`
+      })
+      .setColor(gp >= GOLD_THRESHOLD ? COLOR_GOLD : COLOR_NORMAL)
       .setThumbnail(EMBED_ICON).setTimestamp();
 
-    /* wait for readiness & send */
-    if(!discordReady) await new Promise(r=>client.once("ready",r));
-    try{
-      const ch = await client.channels.fetch(DISCORD_CHANNEL_ID).catch(()=>null);
-      if(ch?.isTextBased()) await ch.send({embeds:[embed]});
+    if (!discordReady) await new Promise(r => client.once("ready", r));
+    try {
+      const ch = await client.channels.fetch(DISCORD_CHANNEL_ID).catch(() => null);
+      if (ch?.isTextBased()) await ch.send({ embeds: [embed] });
       else console.error("[processLoot] channel not ready");
-    }catch(e){ console.error("[processLoot] send failed:",e); }
+    } catch (e) { console.error("[processLoot] send failed:", e); }
 
     saveData();
     return res?.status(200).send("ok");
-  }catch(e){
-    console.error("[processLoot] fatal:",e);
-    if(res&&!res.headersSent)res.status(500).send("err");
+  } catch (e) {
+    console.error("[processLoot] fatal:", e);
+    if (res && !res.headersSent) res.status(500).send("err");
   }
 }
 
-const app = express();
+// ─── express & /dink webhook ────────────────────────────────
+const app    = express();
 const upload = multer();
 app.use(express.json());
-app.use(express.text({type:"text/*"}));
+app.use(express.text({ type:"text/*" }));
 
-app.post("/dink",upload.fields([{name:"payload_json",maxCount:1}]),async(req,res)=>{
-  let raw=req.body?.payload_json;
-  if(Array.isArray(raw)) raw=raw[0];
-  if(!raw&&Object.keys(req.body||{}).length) raw=JSON.stringify(req.body);
-  if(!raw) return res.status(400).send("no payload_json");
-  let data; try{data=JSON.parse(raw);}catch{return res.status(400).send("bad JSON");}
+app.post("/dink",
+  upload.fields([{ name:"payload_json", maxCount:1 }]),
+  async (req, res) => {
+    let raw = req.body?.payload_json;
+    if (Array.isArray(raw)) raw = raw[0];
+    if (!raw && Object.keys(req.body||{}).length) raw = JSON.stringify(req.body);
+    if (!raw) return res.status(400).send("no payload_json");
 
-  if(data.type!=="CHAT"||!["CLAN_CHAT","CLAN_MESSAGE"].includes(data.extra?.type)||typeof data.extra.message!=="string")
-    return res.status(204).end();
+    let data; try { data = JSON.parse(raw); }
+    catch { return res.status(400).send("bad JSON"); }
 
-  if((data.clanName||data.extra.source||"").toLowerCase()!=="obby elite")
-    return res.status(204).end();
+    if (data.type !== "CHAT" ||
+        !["CLAN_CHAT","CLAN_MESSAGE"].includes(data.extra?.type) ||
+        typeof data.extra.message !== "string")
+      return res.status(204).end();
 
-  const msgText=data.extra.message.trim();
-  const m=msgText.match(LOOT_RE);
-  if(!m) return res.status(204).end();
+    if ((data.clanName || data.extra.source || "").toLowerCase() !== "obby elite")
+      return res.status(204).end();
 
-  /* record viewer */
-  seenByLog.push({player:data.playerName||"unknown",message:msgText,timestamp:now()});
-  console.log(`[dink] saw loot message: ${msgText} (by ${data.playerName||"unknown"})`);
+    const msgText = data.extra.message.trim();
+    const m = msgText.match(LOOT_RE);
+    if (!m) return res.status(204).end();
 
-  if(processedLoot.has(msgText)) return res.status(204).end();
-  processedLoot.add(msgText);
-  console.log("[dink] processing loot message:",msgText);
+    /* track viewer */
+    seenByLog.push({
+      player: data.playerName || "unknown",
+      message: msgText,
+      timestamp: now()
+    });
+    console.log(`[dink] saw loot message: ${msgText} (by ${data.playerName||"unknown"})`);
 
-  await processLoot(m[1],m[2],Number(m[3].replace(/,/g,"")),msgText,res);
+    /* de-dupe raw line */
+    if (processedLoot.has(msgText)) return res.status(204).end();
+    processedLoot.add(msgText);
+
+    console.log("[dink] processing loot message:", msgText);
+    await processLoot(m[1], m[2], Number(m[3].replace(/,/g,"")), msgText, res);
+  });
+
+// ─── command handler (all commands restored) ─────────────────
+client.on(Events.MessageCreate, async msg => {
+  try {
+    if (msg.author.bot) return;
+    const text = msg.content.trim();
+    if (!text.startsWith("!")) return;
+
+    msg.delete().catch(()=>{});
+    if (!checkCooldown(msg.author.id))
+      return sendEmbed(msg.channel, "⏳ Cooldown", "Wait a moment…");
+
+    const [cmdRaw, ...args] = text.slice(1).split(/\s+/);
+    const cmd = cmdRaw.toLowerCase();
+
+    /* ---------- statistics ---------- */
+    if (cmd === "hiscores") {
+      let period = "all";
+      if (["daily","weekly","monthly","all"].includes(args[0]?.toLowerCase()))
+        period = args.shift().toLowerCase();
+      const nameFilter = args.join(" ").toLowerCase() || null;
+
+      const filtered = killLog.filter(e =>
+        (currentEvent==="default" ? true : e.event===currentEvent) &&
+        (period==="all" || now() - e.timestamp <=
+          {daily:86_400_000,weekly:604_800_000,monthly:2_592_000_000}[period]));
+
+      const tally = {};
+      filtered.forEach(({ killer }) => {
+        const k = killer.toLowerCase();
+        if (nameFilter && k !== nameFilter) return;
+        tally[k] = (tally[k]||0)+1;
+      });
+      const board = Object.entries(tally)
+        .sort((a,b)=>b[1]-a[1]).slice(0,10);
+
+      const emb = new EmbedBuilder()
+        .setTitle(`🏆 Hiscores (${period})`)
+        .setThumbnail(EMBED_ICON).setColor(0x004200).setTimestamp();
+      if (!board.length) emb.setDescription("No kills in that period.");
+      else board.forEach(([n,c],i)=>emb.addFields({name:`${i+1}. ${n}`,value:`Kills: ${c}`}));
+      return msg.channel.send({ embeds:[emb] });
+    }
+
+    if (cmd === "lootboard") {
+      let period = "all";
+      if (["daily","weekly","monthly","all"].includes(args[0]?.toLowerCase()))
+        period = args.shift().toLowerCase();
+      const nameFilter = args.join(" ").toLowerCase()||null;
+
+      const filtered = lootLog.filter(e =>
+        (currentEvent==="default"?true:e.event===currentEvent) &&
+        (period==="all" || now() - e.timestamp <=
+          {daily:86_400_000,weekly:604_800_000,monthly:2_592_000_000}[period]));
+
+      const sums = {};
+      filtered.forEach(({ killer, gp }) => {
+        const k = killer.toLowerCase();
+        if (nameFilter && k !== nameFilter) return;
+        sums[k] = (sums[k]||0)+gp;
+      });
+      const board = Object.entries(sums)
+        .sort((a,b)=>b[1]-a[1]).slice(0,10);
+
+      const emb = new EmbedBuilder()
+        .setTitle(`💰 Lootboard (${period})`)
+        .setThumbnail(EMBED_ICON).setColor(0x004200).setTimestamp();
+      if (!board.length) emb.setDescription("No loot in that period.");
+      else board.forEach(([n,g],i)=>
+        emb.addFields({name:`${i+1}. ${n}`,value:`${g.toLocaleString()} (${abbreviateGP(g)})`}));
+      return msg.channel.send({ embeds:[emb] });
+    }
+
+    if (cmd === "totalgp" || cmd === "totalloot") {
+      const { gpTotal } = getEventData();
+      const total = Object.values(gpTotal).reduce((s,v)=>s+v,0);
+      return sendEmbed(
+        msg.channel, "💰 Total Loot",
+        `${total.toLocaleString()} coins (${abbreviateGP(total)} GP)`);
+    }
+
+    /* ---------- event management ---------- */
+    if (cmd === "listevents") {
+      const list = Object.keys(events)
+        .map(e => `• ${e}${e===currentEvent?" (current)":""}`).join("\n");
+      return sendEmbed(msg.channel, "📅 Events", list || "No events.");
+    }
+
+    if (cmd === "createevent") {
+      const name = args.join(" ").trim();
+      if (!name || events[name])
+        return sendEmbed(msg.channel, "⚠️ Event", "Invalid or duplicate name.");
+      events[name]={ deathCounts:{},lootTotals:{},gpTotal:{},kills:{} };
+      currentEvent=name; saveData();
+      return sendEmbed(msg.channel,"📅 Event Created",`**${name}** is now current.`);
+    }
+
+    if (cmd === "finishevent") {
+      const file = `events/event_${currentEvent}_${new Date().toISOString().replace(/[:.]/g,"-")}.json`;
+      fs.mkdirSync(path.dirname(path.join(__dirname,file)),{recursive:true});
+      fs.writeFileSync(path.join(__dirname,file),JSON.stringify(events[currentEvent],null,2));
+      delete events[currentEvent];
+      currentEvent="default"; saveData();
+      return sendEmbed(msg.channel,"✅ Event Finished",`Saved to \`${file}\`.`);
+    }
+
+    /* ---------- reset commands ---------- */
+    if (cmd === "reset") {
+      const target = args.join(" ").toLowerCase();
+      if (!target) return sendEmbed(msg.channel,"Usage","`!reset <player>`");
+
+      const ev=getEventData();
+      delete ev.kills[target]; delete ev.lootTotals[target];
+      delete ev.gpTotal[target]; delete ev.deathCounts[target];
+
+      killLog.splice(0,killLog.length,...killLog.filter(e=>
+        e.killer.toLowerCase()!==target&&e.victim.toLowerCase()!==target));
+      lootLog.splice(0,lootLog.length,...lootLog.filter(e=>e.killer.toLowerCase()!==target));
+
+      saveData();
+      return sendEmbed(msg.channel,"🔄 Player Reset",`Stats for **${target}** wiped.`);
+    }
+
+    if (cmd === "resetall") {
+      killLog.length=lootLog.length=0;
+      Object.keys(events).forEach(k=>delete events[k]);
+      events.default={deathCounts:{},lootTotals:{},gpTotal:{},kills:{}};
+      currentEvent="default"; saveData();
+      return sendEmbed(msg.channel,"🔄 Reset Complete","All data wiped.");
+    }
+
+    /* ---------- seenby ---------- */
+    if (cmd === "seenby") {
+      let count = Number(args[0]); if (isNaN(count)||count<1) count=10;
+      const names=[...new Set(seenByLog.slice(-count).map(x=>x.player))];
+      return sendEmbed(msg.channel, `👀 Seen By (${names.length})`, names.join(", ")||"None");
+    }
+
+    /* ---------- help ---------- */
+    if (cmd === "help") {
+      const emb=new EmbedBuilder()
+        .setTitle("🛠 Commands")
+        .setColor(0x004200).setThumbnail(EMBED_ICON).setTimestamp()
+        .setDescription(
+          "**Stats**\n"+
+          "• `!hiscores [period] [name]`\n"+
+          "• `!lootboard [period] [name]`\n"+
+          "• `!totalgp`\n\n"+
+          "**Misc**\n"+
+          "• `!seenby [n]`\n• `!help`");
+      return msg.channel.send({embeds:[emb]});
+    }
+
+  } catch (e) { console.error("[cmd] error:", e); }
 });
 
-/* ────────── mini cmd-handler (only reset & help kept for brevity) ───────── */
-client.on(Events.MessageCreate,async msg=>{
-  if(msg.author.bot) return;
-  const text=msg.content.trim();
-  if(!text.startsWith("!")) return;
-  msg.delete().catch(()=>{});
-  if(!checkCooldown(msg.author.id)){
-    return sendEmbed(msg.channel,"Cooldown","Wait a bit.");
-  }
-  const [cmd,...args] = text.slice(1).split(/\s+/);
-
-  if(cmd==="resetall"){
-    killLog.length=lootLog.length=0;
-    Object.keys(events).forEach(k=>delete events[k]);
-    events.default={deathCounts:{},lootTotals:{},gpTotal:{},kills:{}};
-    currentEvent="default"; saveData();
-    return sendEmbed(msg.channel,"Reset","All data wiped.");
-  }
-
-  if(cmd==="help"){
-    return sendEmbed(msg.channel,"Help","`!resetall` – wipe everything\n`!help` – this message");
-  }
-});
-
-/* ────────── start ───────── */
+// ─── start-up ────────────────────────────────────────────────
 loadData();
 setInterval(saveData,BACKUP_INTERVAL);
-const PORT=process.env.PORT||10000;
-app.listen(PORT,()=>console.log(`[http] listening on ${PORT}`));
+
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => console.log(`[http] listening on ${PORT}`));
 client.login(DISCORD_BOT_TOKEN);
