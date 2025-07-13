@@ -341,7 +341,8 @@ client.on(Events.MessageCreate, async msg => {
 
     /* ---------- manual GP adjustments ---------- */
     if (cmd === "addgp" || cmd === "removegp") {
-      const [name, amtRaw] = args;
+		const amtRaw = args.pop();           // last token = amount
+		const name   = args.join(" ");       // everything else = player name
       if (!name || !amtRaw)
         return sendEmbed(msg.channel, "Usage",
           "`!addgp <player> <amount>`  or  `!removegp <player> <amount>`");
