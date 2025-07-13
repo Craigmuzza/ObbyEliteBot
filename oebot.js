@@ -79,6 +79,20 @@ const abbreviateGP = n =>
   n>=1e6 ? (n/1e6).toFixed(2).replace(/\.?0+$/,"")+"M" :
   n>=1e3 ? (n/1e3).toFixed(2).replace(/\.?0+$/,"")+"K" : String(n);
 
+// convert "123", "123k", "2.5m" → Number
+function parseGP(str) {
+  if (typeof str !== "string") return NaN;
+  const m = str.trim().toLowerCase().match(/^([\d.,]+)\s*([kmb])?$/);
+  if (!m) return NaN;
+  let n = Number(m[1].replace(/,/g, ""));
+  if (isNaN(n)) return NaN;
+  const suf = m[2];
+  if (suf === "k") n *= 1e3;
+  if (suf === "m") n *= 1e6;
+  if (suf === "b") n *= 1e9;
+  return n;
+}
+
 function checkCooldown(id) {
   const nxt = commandCooldowns.get(id) || 0;
   if (now() < nxt) return false;
@@ -324,6 +338,44 @@ client.on(Events.MessageCreate, async msg => {
         msg.channel, "💰 Total Loot",
         `${total.toLocaleString()} coins (${abbreviateGP(total)} GP)`);
     }
+
+    /* ---------- manual GP adjustments ---------- */
+    if (cmd === "addgp" || cmd === "removegp") {
+      const [name, amtRaw] = args;
+      if (!name || !amtRaw)
+        return sendEmbed(msg.channel, "Usage",
+          "`!addgp <player> <amount>`  or  `!removegp <player> <amount>`");
+
+      const gp = parseGP(amtRaw);
+      if (isNaN(gp) || gp <= 0)
+        return sendEmbed(msg.channel, "⚠️ Amount",
+          "Enter a positive number, e.g. `250k`, `1.2m`, `450000`");
+
+      const delta = cmd === "removegp" ? -gp : gp;
+      const ev    = getEventData();
+      const key   = ci(name);
+
+      ev.gpTotal   [key] = (ev.gpTotal   [key] ?? 0) + delta;
+      ev.lootTotals[key] = (ev.lootTotals[key] ?? 0) + delta;
+
+      /* keep leaderboard periods accurate */
+      lootLog.push({
+        killer    : name,
+        gp        : delta,
+        manual    : true,
+        timestamp : now(),
+        event     : currentEvent
+      });
+
+      saveData();
+      return sendEmbed(
+        msg.channel,
+        delta >= 0 ? "✅ GP Added" : "✅ GP Removed",
+        `**${name}** adjusted by ${delta.toLocaleString()} coins ` +
+        `(${abbreviateGP(Math.abs(delta))}).`
+      );
+    }
+		
 
     /* ---------- event management ---------- */
     if (cmd === "listevents") {
