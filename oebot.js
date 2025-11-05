@@ -338,9 +338,10 @@ client.on(Events.MessageCreate, async msg => {
     const text = msg.content.trim();
     if (!text.startsWith("!")) return;
 
-    msg.delete().catch(()=>{});
     if (!checkCooldown(msg.author.id))
       return sendEmbed(msg.channel, "⏳ Cooldown", "Wait a moment…");
+
+    msg.delete().catch(()=>{});
 
     const [cmdRaw, ...args] = text.slice(1).split(/\s+/);
     const cmd = cmdRaw.toLowerCase();
@@ -412,7 +413,7 @@ client.on(Events.MessageCreate, async msg => {
     }
 
     /* ---------- collection log stats ---------- */
-    if (cmd === "collectionlog" || cmd === "clogs") {
+    if (cmd === "collectionlog" || cmd === "clogs" || cmd === "clog") {
       let count = Number(args[0]);
       if (isNaN(count) || count < 1) count = 10;
       
