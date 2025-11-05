@@ -46,6 +46,7 @@ const {
   DISCORD_CHANNEL_ID,
   GITHUB_PAT
 } = process.env;
+const COLLECTION_LOG_CHANNEL_ID = "1435237573240033421";
 const REPO   = "craigmuzza/ObbyEliteBot";
 const BRANCH = "main";
 const COMMIT_MSG = "auto: sync data";
@@ -60,15 +61,19 @@ const COLOR_NORMAL    = 0x820000;
 const COLOR_GOLD      = 0xFFD700;
 const LOOT_RE =
   /^(.+?)\s+has\s+defeated\s+(.+?)\s+and\s+received\s+\(\s*([\d,]+)\s*coins\).*$/i;
+const COLLECTION_LOG_RE =
+  /^(.+?)\s+received a new collection log item:\s*(.+)$/i;
 
 // ─── runtime state ───────────────────────────────────────────
 let currentEvent = "default";
 const processedLoot = new Set();     // de-dupe /dink raw lines
+const processedCollectionLogs = new Set(); // de-dupe collection log messages
 const seen          = new Map();     // short anti-spam window
 const events   = { default:{ deathCounts:{}, lootTotals:{}, gpTotal:{}, kills:{} }};
 const killLog  = [];
 const lootLog  = [];
 const seenByLog= [];
+const collectionLogItems = []; // track collection log drops
 const commandCooldowns = new Collection();
 
 // ─── tiny helpers ────────────────────────────────────────────
@@ -129,7 +134,7 @@ function saveData() {
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive:true });
     fs.writeFileSync(
       path.join(DATA_DIR, "state.json"),
-      JSON.stringify({ currentEvent, events, killLog, lootLog, seenByLog }, null, 2)
+      JSON.stringify({ currentEvent, events, killLog, lootLog, seenByLog, collectionLogItems }, null, 2)
     );
     queueGitCommit();
   } catch (e) { console.error("[save] failed:", e); }
@@ -144,6 +149,7 @@ function loadData() {
     killLog .push(...(d.killLog  ?? []));
     lootLog .push(...(d.lootLog  ?? []));
     seenByLog.push(...(d.seenByLog?? []));
+    collectionLogItems.push(...(d.collectionLogItems ?? []));
     console.log("[init] state loaded");
   } catch (e) { console.error("[init] load error:", e); }
 }
@@ -166,6 +172,50 @@ function getEventData() {
   if (!events[currentEvent])
     events[currentEvent] = { deathCounts:{}, lootTotals:{}, gpTotal:{}, kills:{} };
   return events[currentEvent];
+}
+
+// ─── collection log processor ────────────────────────────────
+async function processCollectionLog(player, item, dedupKey, res) {
+  try {
+    if (!player || !item)
+      return res?.status(400).send("bad data");
+    if (processedCollectionLogs.has(dedupKey))
+      return res?.status(200).send("dup");
+    processedCollectionLogs.add(dedupKey);
+
+    // Store the collection log item
+    collectionLogItems.push({
+      player,
+      item,
+      timestamp: now()
+    });
+
+    const embed = new EmbedBuilder()
+      .setTitle("📜 Collection Log Item")
+      .setDescription(`**${player}** received a new collection log item:\n\n**${item}**`)
+      .setColor(0xFF6B35) // Orange color for collection log
+      .setThumbnail(EMBED_ICON)
+      .setTimestamp();
+
+    if (!discordReady) await new Promise(r => client.once("ready", r));
+    try {
+      const ch = await client.channels.fetch(COLLECTION_LOG_CHANNEL_ID).catch(() => null);
+      if (ch?.isTextBased()) {
+        await ch.send({ embeds: [embed] });
+        console.log(`[collection-log] sent: ${player} - ${item}`);
+      } else {
+        console.error("[collection-log] channel not ready or not found");
+      }
+    } catch (e) { 
+      console.error("[collection-log] send failed:", e); 
+    }
+
+    saveData();
+    return res?.status(200).send("ok");
+  } catch (e) {
+    console.error("[processCollectionLog] fatal:", e);
+    if (res && !res.headersSent) res.status(500).send("err");
+  }
 }
 
 // ─── main loot processor ─────────────────────────────────────
@@ -240,8 +290,30 @@ app.post("/dink",
       return res.status(204).end();
 
     const msgText = data.extra.message.trim();
-    const m = msgText.match(LOOT_RE);
-    if (!m) return res.status(204).end();
+    
+    // Check for collection log message first
+    const collectionMatch = msgText.match(COLLECTION_LOG_RE);
+    if (collectionMatch) {
+      /* track viewer */
+      seenByLog.push({
+        player: data.playerName || "unknown",
+        message: msgText,
+        timestamp: now()
+      });
+      console.log(`[dink] collection log message: ${msgText} (by ${data.playerName||"unknown"})`);
+      
+      await processCollectionLog(
+        collectionMatch[1].trim(), 
+        collectionMatch[2].trim(), 
+        msgText, 
+        res
+      );
+      return;
+    }
+    
+    // Check for loot message
+    const lootMatch = msgText.match(LOOT_RE);
+    if (!lootMatch) return res.status(204).end();
 
     /* track viewer */
     seenByLog.push({
@@ -256,7 +328,7 @@ app.post("/dink",
     processedLoot.add(msgText);
 
     console.log("[dink] processing loot message:", msgText);
-    await processLoot(m[1], m[2], Number(m[3].replace(/,/g,"")), msgText, res);
+    await processLoot(lootMatch[1], lootMatch[2], Number(lootMatch[3].replace(/,/g,"")), msgText, res);
   });
 
 // ─── command handler (all commands restored) ─────────────────
@@ -328,7 +400,7 @@ client.on(Events.MessageCreate, async msg => {
       if (!board.length) emb.setDescription("No loot in that period.");
       else board.forEach(([n,g],i)=>
         emb.addFields({name:`${i+1}. ${n}`,value:`${g.toLocaleString()} (${abbreviateGP(g)})`}));
-      return msg.channel.send({ embeds:[emb] });
+      return msg.channel.send({embeds:[emb]});
     }
 
     if (cmd === "totalgp" || cmd === "totalloot") {
@@ -337,6 +409,31 @@ client.on(Events.MessageCreate, async msg => {
       return sendEmbed(
         msg.channel, "💰 Total Loot",
         `${total.toLocaleString()} coins (${abbreviateGP(total)} GP)`);
+    }
+
+    /* ---------- collection log stats ---------- */
+    if (cmd === "collectionlog" || cmd === "clogs") {
+      let count = Number(args[0]);
+      if (isNaN(count) || count < 1) count = 10;
+      
+      const recent = collectionLogItems.slice(-count).reverse();
+      
+      const emb = new EmbedBuilder()
+        .setTitle(`📜 Recent Collection Logs (${recent.length})`)
+        .setThumbnail(EMBED_ICON)
+        .setColor(0xFF6B35)
+        .setTimestamp();
+      
+      if (!recent.length) {
+        emb.setDescription("No collection log items recorded yet.");
+      } else {
+        const description = recent.map((log, i) => 
+          `**${i + 1}.** ${log.player} - ${log.item}`
+        ).join("\n");
+        emb.setDescription(description);
+      }
+      
+      return msg.channel.send({ embeds: [emb] });
     }
 
     /* ---------- manual GP adjustments ---------- */
@@ -444,7 +541,8 @@ client.on(Events.MessageCreate, async msg => {
           "**Stats**\n"+
           "• `!hiscores [period] [name]`\n"+
           "• `!lootboard [period] [name]`\n"+
-          "• `!totalgp`\n\n"+
+          "• `!totalgp`\n"+
+          "• `!collectionlog [n]` - Show recent collection log items\n\n"+
           "**Misc**\n"+
           "• `!seenby [n]`\n• `!help`");
       return msg.channel.send({embeds:[emb]});
