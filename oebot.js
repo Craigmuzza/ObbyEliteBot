@@ -183,10 +183,18 @@ async function processCollectionLog(player, item, dedupKey, res) {
       return res?.status(200).send("dup");
     processedCollectionLogs.add(dedupKey);
 
+    // Extract collection log count if present (e.g., "32/1609")
+    let logCount = null;
+    const countMatch = item.match(/\((\d+)\/\d+\)$/);
+    if (countMatch) {
+      logCount = parseInt(countMatch[1]);
+    }
+
     // Store the collection log item
     collectionLogItems.push({
       player,
       item,
+      logCount,
       timestamp: now()
     });
 
@@ -437,6 +445,75 @@ client.on(Events.MessageCreate, async msg => {
       return msg.channel.send({ embeds: [emb] });
     }
 
+    if (cmd === "clboard" || cmd === "collectionboard") {
+      // Calculate stats per player
+      const playerStats = {};
+      
+      collectionLogItems.forEach(log => {
+        const playerKey = ci(log.player);
+        if (!playerStats[playerKey]) {
+          playerStats[playerKey] = {
+            name: log.player, // Keep original capitalization
+            totalItems: 0,
+            highestCount: 0
+          };
+        }
+        
+        playerStats[playerKey].totalItems++;
+        
+        if (log.logCount && log.logCount > playerStats[playerKey].highestCount) {
+          playerStats[playerKey].highestCount = log.logCount;
+        }
+      });
+
+      // Sort by total items (primary) and highest count (secondary)
+      const totalItemsBoard = Object.values(playerStats)
+        .sort((a, b) => b.totalItems - a.totalItems || b.highestCount - a.highestCount)
+        .slice(0, 10);
+
+      // Sort by highest collection log count
+      const highestCountBoard = Object.values(playerStats)
+        .filter(p => p.highestCount > 0)
+        .sort((a, b) => b.highestCount - a.highestCount || b.totalItems - a.totalItems)
+        .slice(0, 10);
+
+      const emb = new EmbedBuilder()
+        .setTitle("📜 Collection Log Leaderboard")
+        .setThumbnail(EMBED_ICON)
+        .setColor(0xFF6B35)
+        .setTimestamp();
+
+      // Add total items field
+      if (totalItemsBoard.length > 0) {
+        const itemsDesc = totalItemsBoard.map((p, i) => 
+          `**${i + 1}.** ${p.name} - ${p.totalItems} item${p.totalItems !== 1 ? 's' : ''}`
+        ).join("\n");
+        emb.addFields({ 
+          name: "🏆 Most Collection Log Items", 
+          value: itemsDesc,
+          inline: false
+        });
+      }
+
+      // Add highest count field
+      if (highestCountBoard.length > 0) {
+        const countDesc = highestCountBoard.map((p, i) => 
+          `**${i + 1}.** ${p.name} - ${p.highestCount} collection logs`
+        ).join("\n");
+        emb.addFields({ 
+          name: "📊 Highest Collection Log Count", 
+          value: countDesc,
+          inline: false
+        });
+      }
+
+      if (totalItemsBoard.length === 0 && highestCountBoard.length === 0) {
+        emb.setDescription("No collection log data available yet.");
+      }
+
+      return msg.channel.send({ embeds: [emb] });
+    }
+
     /* ---------- manual GP adjustments ---------- */
     if (cmd === "addgp" || cmd === "removegp") {
 		const amtRaw = args.pop();           // last token = amount
@@ -543,7 +620,8 @@ client.on(Events.MessageCreate, async msg => {
           "• `!hiscores [period] [name]`\n"+
           "• `!lootboard [period] [name]`\n"+
           "• `!totalgp`\n"+
-          "• `!collectionlog [n]` - Show recent collection log items\n\n"+
+          "• `!collectionlog [n]` - Show recent collection log items\n"+
+          "• `!clboard` - Collection log leaderboards\n\n"+
           "**Misc**\n"+
           "• `!seenby [n]`\n• `!help`");
       return msg.channel.send({embeds:[emb]});
