@@ -119,12 +119,16 @@ function queueGitCommit() {
   gitTimer = setTimeout(() => {
     gitTimer = null;
     const opts = { cwd: __dirname, stdio: "ignore", detached: true };
-    spawnSync("git", ["add", "."], opts);
-    spawnSync("git", ["commit", "-m", COMMIT_MSG], opts);
-    spawnSync("git", ["pull", "--rebase", "--ff-only"], opts);
-    spawn("git", ["push",
-      `https://x-access-token:${GITHUB_PAT}@github.com/${REPO}.git`,
-      BRANCH], opts).unref();
+    spawnSync("git", ["add", "data/"], opts);
+    // Only commit & push if there are staged changes
+    const status = spawnSync("git", ["diff", "--cached", "--quiet"], { cwd: __dirname });
+    if (status.status !== 0) {
+      spawnSync("git", ["commit", "-m", COMMIT_MSG], opts);
+      spawnSync("git", ["pull", "--rebase", "--ff-only"], opts);
+      spawn("git", ["push",
+        `https://x-access-token:${GITHUB_PAT}@github.com/${REPO}.git`,
+        BRANCH], opts).unref();
+    }
   }, 5 * 60_000);
 }
 
