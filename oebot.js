@@ -660,9 +660,11 @@ else console.log("[discord] logging in (token length: " + DISCORD_BOT_TOKEN.leng
 // Test if we can even reach Discord's API
 fetch("https://discord.com/api/v10/gateway/bot", {
   headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}` }
-}).then(r => r.json())
-  .then(d => console.log("[discord] gateway API test:", JSON.stringify(d)))
-  .catch(e => console.error("[discord] gateway API test FAILED:", e.message));
+}).then(async r => {
+  const text = await r.text();
+  console.log("[discord] gateway API test status:", r.status);
+  console.log("[discord] gateway API test body:", text.slice(0, 500));
+}).catch(e => console.error("[discord] gateway API test FAILED:", e.message));
 
 setTimeout(() => {
   if (!discordReady) console.error("[discord] still not ready after 30s — connection may be blocked or token invalid");
