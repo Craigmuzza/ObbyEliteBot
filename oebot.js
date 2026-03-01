@@ -169,6 +169,11 @@ client.once("ready", () => {
   console.log(`[discord] ready: ${client.user.tag}`);
 });
 client.on("error", e => console.error("[discord] error:", e));
+client.on("warn", w => console.warn("[discord] warn:", w));
+client.on("shardError", e => console.error("[discord] shard error:", e));
+client.on("shardDisconnect", (e, id) => console.log("[discord] shard disconnect:", id, e));
+client.on("shardReconnecting", id => console.log("[discord] shard reconnecting:", id));
+client.rest.on("rateLimited", info => console.warn("[discord] rate limited:", info));
 
 // ─── helpers for event bucket ────────────────────────────────
 function getEventData() {
@@ -646,7 +651,10 @@ setInterval(saveData,BACKUP_INTERVAL);
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`[http] listening on ${PORT}`));
 if (!DISCORD_BOT_TOKEN) console.error("[discord] DISCORD_BOT_TOKEN is not set!");
-else console.log("[discord] logging in...");
+else console.log("[discord] logging in (token length: " + DISCORD_BOT_TOKEN.length + ")...");
+setTimeout(() => {
+  if (!discordReady) console.error("[discord] still not ready after 30s — connection may be blocked or token invalid");
+}, 30_000);
 client.login(DISCORD_BOT_TOKEN)
   .then(() => console.log("[discord] login succeeded"))
   .catch(e => console.error("[discord] login failed:", e.message));
