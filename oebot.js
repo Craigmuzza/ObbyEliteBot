@@ -645,4 +645,5 @@ setInterval(saveData,BACKUP_INTERVAL);
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`[http] listening on ${PORT}`));
-client.login(DISCORD_BOT_TOKEN);
+client.login(DISCORD_BOT_TOKEN)
+  .catch(e => console.error("[discord] login failed:", e.message));
