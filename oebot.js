@@ -656,6 +656,14 @@ const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`[http] listening on ${PORT}`));
 if (!DISCORD_BOT_TOKEN) console.error("[discord] DISCORD_BOT_TOKEN is not set!");
 else console.log("[discord] logging in (token length: " + DISCORD_BOT_TOKEN.length + ")...");
+
+// Test if we can even reach Discord's API
+fetch("https://discord.com/api/v10/gateway/bot", {
+  headers: { Authorization: `Bot ${DISCORD_BOT_TOKEN}` }
+}).then(r => r.json())
+  .then(d => console.log("[discord] gateway API test:", JSON.stringify(d)))
+  .catch(e => console.error("[discord] gateway API test FAILED:", e.message));
+
 setTimeout(() => {
   if (!discordReady) console.error("[discord] still not ready after 30s — connection may be blocked or token invalid");
 }, 30_000);
