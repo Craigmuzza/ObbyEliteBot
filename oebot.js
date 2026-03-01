@@ -170,6 +170,10 @@ client.once("ready", () => {
 });
 client.on("error", e => console.error("[discord] error:", e));
 client.on("warn", w => console.warn("[discord] warn:", w));
+client.on("debug", msg => {
+  if (/gateway|shard|connect|hello|identify|heartbeat|resume|close|error/i.test(msg))
+    console.log("[discord-debug]", msg);
+});
 client.on("shardError", e => console.error("[discord] shard error:", e));
 client.on("shardDisconnect", (e, id) => console.log("[discord] shard disconnect:", id, e));
 client.on("shardReconnecting", id => console.log("[discord] shard reconnecting:", id));
