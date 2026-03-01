@@ -21,7 +21,7 @@ dotenv.config();
 // ─── paths & dirs ────────────────────────────────────────────
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
-const DATA_DIR   = "/data";
+const DATA_DIR   = path.join(__dirname, "data");
 
 // ─── Git remote & identity (safe-guard) ─────────────────────
 function gitRemoteExists() {
