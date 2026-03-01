@@ -645,5 +645,8 @@ setInterval(saveData,BACKUP_INTERVAL);
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`[http] listening on ${PORT}`));
+if (!DISCORD_BOT_TOKEN) console.error("[discord] DISCORD_BOT_TOKEN is not set!");
+else console.log("[discord] logging in...");
 client.login(DISCORD_BOT_TOKEN)
+  .then(() => console.log("[discord] login succeeded"))
   .catch(e => console.error("[discord] login failed:", e.message));
