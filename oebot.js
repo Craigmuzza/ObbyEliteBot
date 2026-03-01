@@ -161,8 +161,11 @@ const client = new Client({
             GatewayIntentBits.MessageContent ]
 });
 let discordReady = false;
+let readyResolve;
+const readyPromise = new Promise(r => { readyResolve = r; });
 client.once("ready", () => {
   discordReady = true;
+  readyResolve();
   console.log(`[discord] ready: ${client.user.tag}`);
 });
 client.on("error", e => console.error("[discord] error:", e));
@@ -205,7 +208,7 @@ async function processCollectionLog(player, item, dedupKey, res) {
       .setThumbnail(EMBED_ICON)
       .setTimestamp();
 
-    if (!discordReady) await new Promise(r => client.once("ready", r));
+    if (!discordReady) await readyPromise;
     try {
       const ch = await client.channels.fetch(COLLECTION_LOG_CHANNEL_ID).catch(() => null);
       if (ch?.isTextBased()) {
@@ -257,7 +260,7 @@ async function processLoot(killer, victim, gp, dedupKey, res) {
       .setColor(gp >= GOLD_THRESHOLD ? COLOR_GOLD : COLOR_NORMAL)
       .setThumbnail(EMBED_ICON).setTimestamp();
 
-    if (!discordReady) await new Promise(r => client.once("ready", r));
+    if (!discordReady) await readyPromise;
     try {
       const ch = await client.channels.fetch(DISCORD_CHANNEL_ID).catch(() => null);
       if (ch?.isTextBased()) await ch.send({ embeds: [embed] });
@@ -279,7 +282,7 @@ app.use(express.json());
 app.use(express.text({ type:"text/*" }));
 
 app.post("/dink",
-  upload.fields([{ name:"payload_json", maxCount:1 }]),
+  upload.any(),
   async (req, res) => {
     let raw = req.body?.payload_json;
     if (Array.isArray(raw)) raw = raw[0];
@@ -628,6 +631,12 @@ client.on(Events.MessageCreate, async msg => {
     }
 
   } catch (e) { console.error("[cmd] error:", e); }
+});
+
+// ─── express error handler ──────────────────────────────────
+app.use((err, _req, res, _next) => {
+  console.error("[http] error:", err.message || err);
+  if (!res.headersSent) res.status(500).send("internal error");
 });
 
 // ─── start-up ────────────────────────────────────────────────
