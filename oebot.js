@@ -290,6 +290,15 @@ const upload = multer();
 app.use(express.json());
 app.use(express.text({ type:"text/*" }));
 
+// ─── data download endpoint ─────────────────────────────────
+app.get("/data/download", (_req, res) => {
+  const p = path.join(DATA_DIR, "state.json");
+  if (!fs.existsSync(p)) return res.status(404).send("no data file");
+  res.setHeader("Content-Disposition", "attachment; filename=state.json");
+  res.setHeader("Content-Type", "application/json");
+  res.sendFile(p);
+});
+
 app.post("/dink",
   upload.any(),
   async (req, res) => {
