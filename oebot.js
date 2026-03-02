@@ -24,21 +24,21 @@ const __dirname  = path.dirname(__filename);
 const DATA_DIR   = path.join(__dirname, "data");
 
 // ─── Git remote & identity (safe-guard) ─────────────────────
-function gitRemoteExists() {
+function gitSetup() {
   try {
-    const out = spawnSync("git", ["remote"], { cwd: __dirname })
-                  .stdout.toString();
-    return out.split(/\s+/).includes("origin");
-  } catch { return false; }
+    const out = spawnSync("git", ["remote"], { cwd: __dirname });
+    if (out.error) return; // git not available
+    if (out.stdout.toString().split(/\s+/).includes("origin")) {
+      spawnSync("git",
+        ["remote", "set-url", "origin",
+         "https://github.com/Craigmuzza/ObbyEliteBot.git"],
+        { cwd: __dirname, stdio: "ignore" });
+    }
+    spawnSync("git", ["config", "user.email", "bot@localhost"], { cwd: __dirname });
+    spawnSync("git", ["config", "user.name",  "OE Loot Bot"],  { cwd: __dirname });
+  } catch { /* git not available */ }
 }
-if (gitRemoteExists()) {
-  spawnSync("git",
-    ["remote", "set-url", "origin",
-     "https://github.com/Craigmuzza/ObbyEliteBot.git"],
-    { cwd: __dirname, stdio: "ignore" });
-}
-spawnSync("git", ["config", "user.email", "bot@localhost" ], { cwd: __dirname });
-spawnSync("git", ["config", "user.name",  "OE Loot Bot"    ], { cwd: __dirname });
+gitSetup();
 
 // ─── env ─────────────────────────────────────────────────────
 const {
@@ -111,24 +111,33 @@ const sendEmbed = (ch, title, desc, color = 0x004200) =>
       .setThumbnail(EMBED_ICON).setTimestamp() ]});
 
 // ─── git helper (debounced push) ─────────────────────────────
+const hasGit = (() => {
+  try { return spawnSync("git", ["--version"]).status === 0; }
+  catch { return false; }
+})();
+if (!hasGit) console.warn("[git] git not found — data backup to GitHub disabled");
+
 let gitTimer = null;
 function queueGitCommit() {
-  if (!GITHUB_PAT) return;
+  if (!hasGit || !GITHUB_PAT) return;
   if (gitTimer) return;
 
   gitTimer = setTimeout(() => {
     gitTimer = null;
-    const opts = { cwd: __dirname, stdio: "ignore", detached: true };
-    spawnSync("git", ["add", "data/"], opts);
-    // Only commit & push if there are staged changes
-    const status = spawnSync("git", ["diff", "--cached", "--quiet"], { cwd: __dirname });
-    if (status.status !== 0) {
-      spawnSync("git", ["commit", "-m", COMMIT_MSG], opts);
-      spawnSync("git", ["pull", "--rebase", "--ff-only"], opts);
-      spawn("git", ["push",
-        `https://x-access-token:${GITHUB_PAT}@github.com/${REPO}.git`,
-        BRANCH], opts).unref();
-    }
+    try {
+      const opts = { cwd: __dirname, stdio: "ignore" };
+      spawnSync("git", ["add", "data/"], opts);
+      const status = spawnSync("git", ["diff", "--cached", "--quiet"], { cwd: __dirname });
+      if (status.status !== 0) {
+        spawnSync("git", ["commit", "-m", COMMIT_MSG], opts);
+        spawnSync("git", ["pull", "--rebase", "--ff-only"], opts);
+        const pushProc = spawn("git", ["push",
+          `https://x-access-token:${GITHUB_PAT}@github.com/${REPO}.git`,
+          BRANCH], { cwd: __dirname, stdio: "ignore" });
+        pushProc.on("error", e => console.error("[git] push error:", e.message));
+        pushProc.unref();
+      }
+    } catch (e) { console.error("[git] commit error:", e.message); }
   }, 5 * 60_000);
 }
 
