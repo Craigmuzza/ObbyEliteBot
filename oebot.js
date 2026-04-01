@@ -74,6 +74,7 @@ const killLog  = [];
 const lootLog  = [];
 const seenByLog= [];
 const collectionLogItems = []; // track collection log drops
+let clogComp = null; // { name, startTime, endTime|null }
 const commandCooldowns = new Collection();
 
 // ─── tiny helpers ────────────────────────────────────────────
@@ -147,7 +148,7 @@ function saveData() {
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive:true });
     fs.writeFileSync(
       path.join(DATA_DIR, "state.json"),
-      JSON.stringify({ currentEvent, events, killLog, lootLog, seenByLog, collectionLogItems }, null, 2)
+      JSON.stringify({ currentEvent, events, killLog, lootLog, seenByLog, collectionLogItems, clogComp }, null, 2)
     );
     queueGitCommit();
   } catch (e) { console.error("[save] failed:", e); }
@@ -163,6 +164,7 @@ function loadData() {
     lootLog .push(...(d.lootLog  ?? []));
     seenByLog.push(...(d.seenByLog?? []));
     collectionLogItems.push(...(d.collectionLogItems ?? []));
+    clogComp = d.clogComp ?? null;
     console.log("[init] state loaded");
   } catch (e) { console.error("[init] load error:", e); }
 }
@@ -548,6 +550,72 @@ client.on(Events.MessageCreate, async msg => {
       return msg.channel.send({ embeds: [emb] });
     }
 
+    /* ---------- clog competition ---------- */
+    if (cmd === "startclogcomp") {
+      const name = args.join(" ").trim() || "Collection Log Competition";
+      if (clogComp && !clogComp.endTime)
+        return sendEmbed(msg.channel, "⚠️ Already Running",
+          `**${clogComp.name}** is already active. Use \`!endclogcomp\` to end it first.`);
+      clogComp = { name, startTime: now(), endTime: null };
+      saveData();
+      return sendEmbed(msg.channel, "📜 Competition Started",
+        `**${name}** has begun!\nTracking collection log items from now.\nUse \`!clogcomp\` to see standings and \`!endclogcomp\` to finish.`,
+        0xFF6B35);
+    }
+
+    if (cmd === "clogcomp") {
+      if (!clogComp)
+        return sendEmbed(msg.channel, "📜 No Competition", "No collection log competition is running. Use `!startclogcomp <name>` to start one.");
+
+      const end = clogComp.endTime ?? now();
+      const entries = collectionLogItems.filter(e => e.timestamp >= clogComp.startTime && e.timestamp <= end);
+      const tally = {};
+      entries.forEach(({ player }) => {
+        const k = ci(player);
+        if (!tally[k]) tally[k] = { name: player, count: 0 };
+        tally[k].count++;
+      });
+      const board = Object.values(tally).sort((a, b) => b.count - a.count).slice(0, 10);
+
+      const emb = new EmbedBuilder()
+        .setTitle(`📜 ${clogComp.name}${clogComp.endTime ? " — Final Results" : " — Live Standings"}`)
+        .setColor(0xFF6B35).setThumbnail(EMBED_ICON).setTimestamp();
+      if (!board.length) emb.setDescription("No collection log items recorded yet.");
+      else emb.setDescription(board.map((p, i) =>
+        `**${i + 1}.** ${p.name} — ${p.count} item${p.count !== 1 ? "s" : ""}`
+      ).join("\n"));
+      return msg.channel.send({ embeds: [emb] });
+    }
+
+    if (cmd === "endclogcomp") {
+      if (!clogComp || clogComp.endTime)
+        return sendEmbed(msg.channel, "⚠️ No Active Competition", "No collection log competition is currently running.");
+      clogComp.endTime = now();
+      saveData();
+
+      // Re-use clogcomp display logic via a fake message trigger
+      const entries = collectionLogItems.filter(e => e.timestamp >= clogComp.startTime && e.timestamp <= clogComp.endTime);
+      const tally = {};
+      entries.forEach(({ player }) => {
+        const k = ci(player);
+        if (!tally[k]) tally[k] = { name: player, count: 0 };
+        tally[k].count++;
+      });
+      const board = Object.values(tally).sort((a, b) => b.count - a.count).slice(0, 10);
+
+      const emb = new EmbedBuilder()
+        .setTitle(`🏆 ${clogComp.name} — Final Results`)
+        .setColor(0xFFD700).setThumbnail(EMBED_ICON).setTimestamp();
+      if (!board.length) emb.setDescription("No collection log items were recorded.");
+      else {
+        emb.setDescription(board.map((p, i) =>
+          `**${i + 1}.** ${p.name} — ${p.count} item${p.count !== 1 ? "s" : ""}`
+        ).join("\n"));
+        emb.addFields({ name: "🥇 Winner", value: `**${board[0].name}** with **${board[0].count}** collection log items!` });
+      }
+      return msg.channel.send({ embeds: [emb] });
+    }
+
     /* ---------- manual GP adjustments ---------- */
     if (cmd === "addgp" || cmd === "removegp") {
 		const amtRaw = args.pop();           // last token = amount
@@ -656,6 +724,10 @@ client.on(Events.MessageCreate, async msg => {
           "• `!totalgp`\n"+
           "• `!collectionlog [n]` - Show recent collection log items\n"+
           "• `!clboard` - Collection log leaderboards\n\n"+
+          "**Collection Log Competition**\n"+
+          "• `!startclogcomp <name>` - Start a new competition\n"+
+          "• `!clogcomp` - Show live standings\n"+
+          "• `!endclogcomp` - End competition and show winner\n\n"+
           "**Misc**\n"+
           "• `!seenby [n]`\n• `!help`");
       return msg.channel.send({embeds:[emb]});
