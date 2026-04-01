@@ -552,14 +552,57 @@ client.on(Events.MessageCreate, async msg => {
 
     /* ---------- clog competition ---------- */
     if (cmd === "startclogcomp") {
-      const name = args.join(" ").trim() || "Collection Log Competition";
       if (clogComp && !clogComp.endTime)
         return sendEmbed(msg.channel, "⚠️ Already Running",
           `**${clogComp.name}** is already active. Use \`!endclogcomp\` to end it first.`);
-      clogComp = { name, startTime: now(), endTime: null };
+
+      // Parse optional duration from last arg (e.g. 7d, 2w, 24h)
+      let durationMs = null;
+      const lastArg = args[args.length - 1] ?? "";
+      const durMatch = lastArg.match(/^(\d+)(h|d|w)$/i);
+      if (durMatch) {
+        args.pop();
+        const n = Number(durMatch[1]);
+        const unit = durMatch[2].toLowerCase();
+        durationMs = n * (unit === "h" ? 3_600_000 : unit === "d" ? 86_400_000 : 604_800_000);
+      }
+
+      const name = args.join(" ").trim() || "Collection Log Competition";
+      const startTime = now();
+      const endTime = durationMs ? startTime + durationMs : null;
+      clogComp = { name, startTime, endTime };
       saveData();
+
+      // Schedule auto-end if duration given
+      if (durationMs) {
+        setTimeout(async () => {
+          if (!clogComp || clogComp.endTime !== endTime) return; // comp was ended/replaced
+          clogComp.endTime = now();
+          saveData();
+          const entries = collectionLogItems.filter(e => e.timestamp >= clogComp.startTime && e.timestamp <= clogComp.endTime);
+          const tally = {};
+          entries.forEach(({ player }) => { const k = ci(player); if (!tally[k]) tally[k] = { name: player, count: 0 }; tally[k].count++; });
+          const board = Object.values(tally).sort((a, b) => b.count - a.count).slice(0, 10);
+          const emb = new EmbedBuilder()
+            .setTitle(`🏆 ${clogComp.name} — Competition Over!`)
+            .setColor(0xFFD700).setThumbnail(EMBED_ICON).setTimestamp();
+          if (!board.length) emb.setDescription("No collection log items were recorded.");
+          else {
+            emb.setDescription(board.map((p, i) => `**${i + 1}.** ${p.name} — ${p.count} item${p.count !== 1 ? "s" : ""}`).join("\n"));
+            emb.addFields({ name: "🥇 Winner", value: `**${board[0].name}** with **${board[0].count}** collection log items!` });
+          }
+          try {
+            const ch = await client.channels.fetch(COLLECTION_LOG_CHANNEL_ID).catch(() => null);
+            if (ch?.isTextBased()) ch.send({ embeds: [emb] });
+          } catch (e) { console.error("[clogcomp] auto-end send failed:", e); }
+        }, durationMs);
+      }
+
+      const durText = durationMs
+        ? `Ends <t:${Math.floor((startTime + durationMs) / 1000)}:R> (<t:${Math.floor((startTime + durationMs) / 1000)}:F>)`
+        : "No end time set — use `!endclogcomp` to finish.";
       return sendEmbed(msg.channel, "📜 Competition Started",
-        `**${name}** has begun!\nTracking collection log items from now.\nUse \`!clogcomp\` to see standings and \`!endclogcomp\` to finish.`,
+        `**${name}** has begun!\n${durText}\nUse \`!clogcomp\` to see standings.`,
         0xFF6B35);
     }
 
